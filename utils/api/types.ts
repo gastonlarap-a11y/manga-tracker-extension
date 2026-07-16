@@ -1,0 +1,39 @@
+// Hand-duplicated contracts from manga-tracker-api (src/lib/schemas.ts,
+// src/modules/events/events.routes.ts, src/lib/http.ts). Project constraint:
+// when a contract changes in the API, this file changes in the same commit.
+
+export interface MangaDto {
+  id: string;
+  canonicalName: string;
+  normalizedSlug: string;
+  createdAt: string;
+}
+
+export interface ReadingEventDto {
+  id: string;
+  mangaId: string;
+  chapterLabel: string;
+  chapterNumber: number | null;
+  sourceUrl: string;
+  sourceDomain: string;
+  readAt: string;
+}
+
+export interface CreateEventBody {
+  mangaName: string;
+  chapterLabel: string;
+  sourceUrl: string;
+}
+
+export interface CreateEventResponse {
+  manga: MangaDto;
+  event: ReadingEventDto;
+}
+
+export interface HealthResponse {
+  status: "ok";
+}
+
+export interface ErrorResponse {
+  error: string;
+}
