@@ -134,6 +134,21 @@ describe("cleanMangaName", () => {
     expect(cleanMangaName(raw, chapter)).toBe(expected);
   });
 
+  it.each([
+    [
+      "Capítulo 32 de Mi Invocación es de Clase EX | Olympus Scanlation",
+      "32",
+      "Mi Invocación es de Clase EX",
+    ],
+    ["Chapter 12 of Solo Leveling", "12", "Solo Leveling"],
+    ["Capítulo 130.5 - One Piece", "130.5", "One Piece"],
+  ])(
+    "drops the leading chapter prefix and connector in %s",
+    (raw, chapter, expected) => {
+      expect(cleanMangaName(raw, chapter)).toBe(expected);
+    },
+  );
+
   it("removes leftover separators around the chapter fragment", () => {
     expect(cleanMangaName("One Piece - Capítulo 1100", "1100")).toBe(
       "One Piece",

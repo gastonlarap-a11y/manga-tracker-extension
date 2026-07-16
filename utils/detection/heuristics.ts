@@ -100,8 +100,15 @@ export function cleanMangaName(
   let name = rawTitle.split("|")[0] ?? rawTitle;
 
   const escapedNumber = chapterNumber.replace(".", "[.,]");
+  const chapterWords = "(?:cap[íi]tulo|cap\\.?|chapter|ch\\.?)";
+  // Leading "Capítulo N de X" / "Chapter N of X" also drops the connector.
+  const leadingFragment = new RegExp(
+    `^\\s*${chapterWords}\\s*${escapedNumber}\\s*(?:de|del|of)?\\s*[-–—:·]?\\s*`,
+    "i",
+  );
+  name = name.replace(leadingFragment, "");
   const chapterFragment = new RegExp(
-    `(?:cap[íi]tulo|cap\\.?|chapter|ch\\.?)\\s*${escapedNumber}`,
+    `${chapterWords}\\s*${escapedNumber}`,
     "gi",
   );
   name = name.replace(chapterFragment, "");
