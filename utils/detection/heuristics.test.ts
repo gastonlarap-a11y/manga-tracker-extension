@@ -5,6 +5,7 @@ import {
   detectFromHeuristics,
   extractChapterFromTitle,
   extractChapterFromUrl,
+  isReaderPath,
 } from "./heuristics";
 import type { PageSignals } from "./page-signals";
 
@@ -49,6 +50,26 @@ describe("extractChapterFromUrl", () => {
   });
 });
 
+describe("isReaderPath", () => {
+  it.each([
+    ["https://manhwaweb.com/leer/some-slug_1750256573107-36_01"],
+    ["https://manhwaweb.com/leer_18/some-slug_123"],
+    ["https://example.com/read/solo-leveling/5"],
+    ["https://example.com/viewer/abc123"],
+  ])("accepts the reader path %s", (url) => {
+    expect(isReaderPath(url)).toBe(true);
+  });
+
+  it.each([
+    ["https://manhwaweb.com/", "catalog home"],
+    ["https://manhwaweb.com/biblioteca", "library listing"],
+    ["https://manhwaweb.com/manhwa/some-slug_123", "manga detail"],
+    ["not a url", "invalid url"],
+  ])("rejects %s (%s)", (url) => {
+    expect(isReaderPath(url)).toBe(false);
+  });
+});
+
 describe("extractChapterFromTitle", () => {
   it.each([
     ["Capítulo 122 de El Genio entrenador de artes marciales", "122"],
@@ -81,7 +102,52 @@ describe("detectFromHeuristics", () => {
       detected: true,
       mangaName: "El Genio entrenador de artes marciales",
       chapterLabel: "Cap. 122",
-      confidence: 0.8,
+      confidence: 0.9,
+    });
+  });
+
+  it("detects a reader page whose chapter only lives in the document title (manhwaweb)", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://manhwaweb.com/leer/puedo-destruir-los--mundos-con-un-cuchillo-carnicero_1750256573107-36_01",
+        documentTitle:
+          "Puedo Destruir los Mundos con un Cuchillo Carnicero Capitulo 1 manhwa - ManhwaWeb",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Puedo Destruir los Mundos con un Cuchillo Carnicero",
+      chapterLabel: "Cap. 1",
+      confidence: 0.75,
+    });
+  });
+
+  it("does not use reader-url numbers as the chapter when no title names one", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://manhwaweb.com/leer/some-slug_1750256573107-36_01",
+        documentTitle: "ManhwaWeb - Manhwa Web",
+      }),
+    );
+
+    expect(result).toEqual({ detected: false, reason: "no-chapter-in-title" });
+  });
+
+  it("prefers the title source naming the chapter over higher-priority ones", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://manhwaweb.com/leer/solo-leveling_123_12",
+        firstHeading: "ManhwaWeb",
+        documentTitle: "Solo Leveling Capitulo 12 manhwa - ManhwaWeb",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Solo Leveling",
+      chapterLabel: "Cap. 12",
+      confidence: 0.75,
     });
   });
 
@@ -123,7 +189,7 @@ describe("detectFromHeuristics", () => {
       detected: true,
       mangaName: "One Piece",
       chapterLabel: "Cap. 1100",
-      confidence: 0.8,
+      confidence: 0.9,
     });
     if (result.detected) {
       expect(result.confidence).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLD);
@@ -151,9 +217,9 @@ describe("detectFromHeuristics", () => {
     expect(result).toMatchObject({ detected: true, confidence: 0.7 });
   });
 
-  it("leaves a document-title-only detection below the threshold", () => {
+  it("leaves a chapterless document-title detection below the threshold", () => {
     const result = detectFromHeuristics(
-      signals({ documentTitle: "Solo Leveling cap 1100" }),
+      signals({ documentTitle: "Solo Leveling" }),
     );
 
     expect(result.detected).toBe(true);
@@ -204,6 +270,19 @@ describe("cleanMangaName", () => {
     expect(cleanMangaName("One Piece - Capítulo 1100", "1100")).toBe(
       "One Piece",
     );
+  });
+
+  it("drops site junk after the chapter fragment", () => {
+    expect(
+      cleanMangaName(
+        "Puedo Destruir los Mundos con un Cuchillo Carnicero Capitulo 1 manhwa - ManhwaWeb",
+        "1",
+      ),
+    ).toBe("Puedo Destruir los Mundos con un Cuchillo Carnicero");
+  });
+
+  it("does not treat word-internal 'ch' plus a number as a chapter fragment", () => {
+    expect(cleanMangaName("Punch 3 Deluxe", "3")).toBe("Punch 3 Deluxe");
   });
 
   it("keeps unrelated numbers intact", () => {

@@ -68,5 +68,22 @@ export default defineContentScript({
 
     scheduleDetection();
     ctx.addEventListener(window, "wxt:locationchange", scheduleDetection);
+
+    // SPA readers (e.g. manhwaweb) set the chapter title only after their
+    // data loads, possibly later than the settle delay — re-detect when
+    // <title> actually changes.
+    let lastSeenTitle = document.title;
+    const titleObserver = new MutationObserver(() => {
+      if (document.title !== lastSeenTitle) {
+        lastSeenTitle = document.title;
+        scheduleDetection();
+      }
+    });
+    titleObserver.observe(document.head, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    ctx.onInvalidated(() => titleObserver.disconnect());
   },
 });
