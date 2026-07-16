@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing";
-import { registerSite, unregisterSite } from "./site-registration";
+import {
+  registerSite,
+  syncRegisteredSites,
+  unregisterSite,
+} from "./site-registration";
 
 const getRegisteredMock = vi.fn();
 const registerMock = vi.fn();
 const unregisterMock = vi.fn();
 const executeScriptMock = vi.fn();
+const getAllPermissionsMock = vi.fn();
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -13,14 +18,18 @@ beforeEach(() => {
   registerMock.mockReset();
   unregisterMock.mockReset();
   executeScriptMock.mockReset();
-  // Cast justified: fake-browser does not implement the scripting namespace,
-  // so the test provides the minimal stub the registration logic calls.
+  getAllPermissionsMock.mockReset();
+  // Cast justified: fake-browser does not implement the scripting/permissions
+  // namespaces, so the test provides the minimal stubs the logic calls.
   fakeBrowser.scripting = {
     getRegisteredContentScripts: getRegisteredMock,
     registerContentScripts: registerMock,
     unregisterContentScripts: unregisterMock,
     executeScript: executeScriptMock,
   } as unknown as typeof fakeBrowser.scripting;
+  fakeBrowser.permissions = {
+    getAll: getAllPermissionsMock,
+  } as unknown as typeof fakeBrowser.permissions;
 });
 
 describe("registerSite", () => {
@@ -66,6 +75,84 @@ describe("registerSite", () => {
     const result = await registerSite("bad-pattern", 4);
 
     expect(result).toEqual({ ok: false, error: "Invalid match pattern" });
+  });
+});
+
+describe("syncRegisteredSites", () => {
+  it("re-registers granted origins whose registration was wiped", async () => {
+    getAllPermissionsMock.mockResolvedValue({
+      origins: ["http://localhost:5150/*", "https://olympusxyz.com/*"],
+      permissions: ["storage", "activeTab", "scripting"],
+    });
+    getRegisteredMock.mockResolvedValue([]);
+    registerMock.mockResolvedValue(undefined);
+
+    const result = await syncRegisteredSites();
+
+    expect(registerMock).toHaveBeenCalledWith([
+      {
+        id: "detector:https://olympusxyz.com/*",
+        matches: ["https://olympusxyz.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+    expect(unregisterMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("never registers a detector for the backend host permission", async () => {
+    getAllPermissionsMock.mockResolvedValue({
+      origins: ["http://localhost:5150/*"],
+      permissions: [],
+    });
+    getRegisteredMock.mockResolvedValue([]);
+
+    const result = await syncRegisteredSites();
+
+    expect(registerMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("leaves origins that are already registered untouched", async () => {
+    getAllPermissionsMock.mockResolvedValue({
+      origins: ["https://olympusxyz.com/*"],
+      permissions: [],
+    });
+    getRegisteredMock.mockResolvedValue([
+      { id: "detector:https://olympusxyz.com/*" },
+    ]);
+
+    const result = await syncRegisteredSites();
+
+    expect(registerMock).not.toHaveBeenCalled();
+    expect(unregisterMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("unregisters detectors whose permission was revoked", async () => {
+    getAllPermissionsMock.mockResolvedValue({ origins: [], permissions: [] });
+    getRegisteredMock.mockResolvedValue([
+      { id: "detector:https://revoked.com/*" },
+    ]);
+    unregisterMock.mockResolvedValue(undefined);
+
+    const result = await syncRegisteredSites();
+
+    expect(unregisterMock).toHaveBeenCalledWith({
+      ids: ["detector:https://revoked.com/*"],
+    });
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("surfaces sync failures", async () => {
+    getAllPermissionsMock.mockRejectedValue(new Error("permissions broken"));
+    getRegisteredMock.mockResolvedValue([]);
+
+    const result = await syncRegisteredSites();
+
+    expect(result).toEqual({ ok: false, error: "permissions broken" });
   });
 });
 
