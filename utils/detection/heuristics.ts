@@ -32,9 +32,12 @@ const CHAPTER_URL_PATTERNS: RegExp[] = [
   /\/c\/(\d+(?:[.,]\d+)?)/i,
 ];
 
+// Longest alternatives first so "capítulo" is not half-matched as "cap".
+const CHAPTER_WORDS = "(?:cap[íi]tulo|chapter|cap\\.?|ch\\.?)";
+
 export function detectFromHeuristics(signals: PageSignals): Detection {
-  const chapterNumber = extractChapterFromUrl(signals.url);
-  if (chapterNumber === null) {
+  const urlChapter = extractChapterFromUrl(signals.url);
+  if (urlChapter === null) {
     return { detected: false, reason: "no-chapter-in-url" };
   }
 
@@ -42,6 +45,11 @@ export function detectFromHeuristics(signals: PageSignals): Detection {
   if (title === null) {
     return { detected: false, reason: "no-title" };
   }
+
+  // The URL gates "is this a chapter page", but its number can be an internal
+  // id (e.g. olympus: /capitulo/<id>/ with the real chapter in the title), so
+  // the human-facing title wins when it names a chapter.
+  const chapterNumber = extractChapterFromTitle(title.value) ?? urlChapter;
 
   const mangaName = cleanMangaName(title.value, chapterNumber);
   if (mangaName.length === 0) {
@@ -72,6 +80,15 @@ export function extractChapterFromUrl(url: string): string | null {
   return null;
 }
 
+export function extractChapterFromTitle(title: string): string | null {
+  const match = new RegExp(
+    `\\b${CHAPTER_WORDS}\\s*(\\d+(?:[.,]\\d+)?)`,
+    "i",
+  ).exec(title);
+  const captured = match?.[1];
+  return captured ? captured.replace(",", ".") : null;
+}
+
 function pickTitle(
   signals: PageSignals,
 ): { value: string; source: TitleSource } | null {
@@ -100,15 +117,14 @@ export function cleanMangaName(
   let name = rawTitle.split("|")[0] ?? rawTitle;
 
   const escapedNumber = chapterNumber.replace(".", "[.,]");
-  const chapterWords = "(?:cap[íi]tulo|cap\\.?|chapter|ch\\.?)";
   // Leading "Capítulo N de X" / "Chapter N of X" also drops the connector.
   const leadingFragment = new RegExp(
-    `^\\s*${chapterWords}\\s*${escapedNumber}\\s*(?:de|del|of)?\\s*[-–—:·]?\\s*`,
+    `^\\s*${CHAPTER_WORDS}\\s*${escapedNumber}\\s*(?:de|del|of)?\\s*[-–—:·]?\\s*`,
     "i",
   );
   name = name.replace(leadingFragment, "");
   const chapterFragment = new RegExp(
-    `${chapterWords}\\s*${escapedNumber}`,
+    `${CHAPTER_WORDS}\\s*${escapedNumber}`,
     "gi",
   );
   name = name.replace(chapterFragment, "");

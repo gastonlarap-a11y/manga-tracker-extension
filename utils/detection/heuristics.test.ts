@@ -3,6 +3,7 @@ import {
   CONFIDENCE_THRESHOLD,
   cleanMangaName,
   detectFromHeuristics,
+  extractChapterFromTitle,
   extractChapterFromUrl,
 } from "./heuristics";
 import type { PageSignals } from "./page-signals";
@@ -48,7 +49,57 @@ describe("extractChapterFromUrl", () => {
   });
 });
 
+describe("extractChapterFromTitle", () => {
+  it.each([
+    ["Capítulo 122 de El Genio entrenador de artes marciales", "122"],
+    ["One Piece Chapter 1100", "1100"],
+    ["Solo Leveling Cap. 130.5", "130.5"],
+    ["Solo Leveling cap 130,5", "130.5"],
+  ])("extracts the chapter from %s", (title, expected) => {
+    expect(extractChapterFromTitle(title)).toBe(expected);
+  });
+
+  it.each([
+    ["Mob Psycho 100", "bare number"],
+    ["Punch 3", "'ch' inside another word"],
+    ["Olympus Scanlation | Lee cientos de cómics", "catalog title"],
+  ])("returns null for %s (%s)", (title) => {
+    expect(extractChapterFromTitle(title)).toBeNull();
+  });
+});
+
 describe("detectFromHeuristics", () => {
+  it("prefers the title's chapter over an internal id in the url (olympus)", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://olympusxyz.com/capitulo/130729/",
+        ogTitle: "Capítulo 122 de El Genio entrenador de artes marciales",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "El Genio entrenador de artes marciales",
+      chapterLabel: "Cap. 122",
+      confidence: 0.8,
+    });
+  });
+
+  it("falls back to the url chapter when the title has none", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://example.com/one-piece/chapter-1100",
+        ogTitle: "One Piece | Example Scan",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      detected: true,
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1100",
+    });
+  });
+
   it("does not detect catalog pages (no chapter in url)", () => {
     const result = detectFromHeuristics(
       signals({
