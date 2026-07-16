@@ -75,6 +75,44 @@ describe("handleMessage", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("routes get-adapter to the backend and maps a 404 to null", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "Adapter not found" }, 404),
+    );
+
+    const response = await handleMessage({
+      kind: "get-adapter",
+      domain: "example.com",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/adapters/example.com",
+      undefined,
+    );
+    expect(response).toEqual({ ok: true, data: null });
+  });
+
+  it("routes record-event straight to the events endpoint", async () => {
+    const created = { manga: { id: "m1" }, event: { id: "e1" } };
+    fetchMock.mockResolvedValue(jsonResponse(created, 201));
+    const payload = {
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1100",
+      sourceUrl: "https://example.com/one-piece/capitulo/1100",
+    };
+
+    const response = await handleMessage({ kind: "record-event", payload });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/events",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    );
+    expect(response).toEqual({ ok: true, data: created });
+  });
+
   it("rejects a content script result that is not page info", async () => {
     executeScriptMock.mockResolvedValue([{ result: null }]);
 

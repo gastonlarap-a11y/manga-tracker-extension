@@ -1,10 +1,11 @@
 import { browser } from "#imports";
 import type { ApiResult } from "./api/client";
-import { createReadingEvent, pingHealth } from "./api/client";
+import { createReadingEvent, getAdapter, pingHealth } from "./api/client";
 import type { CreateEventResponse } from "./api/types";
 import type { MessageResponses, RuntimeMessage } from "./messages";
 import type { PageInfo } from "./page-info";
 import { isPageInfo } from "./page-info";
+import { registerSite, unregisterSite } from "./site-registration";
 import { buildTestEventPayload } from "./test-event";
 
 // Business logic behind the background service worker; the entrypoint only
@@ -18,6 +19,14 @@ export function handleMessage(
       return pingHealth();
     case "send-test-event":
       return sendTestEvent(message.tabId);
+    case "get-adapter":
+      return getAdapter(message.domain);
+    case "record-event":
+      return createReadingEvent(message.payload);
+    case "register-site":
+      return registerSite(message.originPattern, message.tabId);
+    case "unregister-site":
+      return unregisterSite(message.originPattern);
   }
 }
 

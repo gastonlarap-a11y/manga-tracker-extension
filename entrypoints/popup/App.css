@@ -28,6 +28,25 @@
   color: #d64545;
 }
 
+.site {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.12);
+  font-size: 0.85rem;
+}
+
+.site p {
+  margin: 0;
+}
+
+.site.error {
+  color: #d64545;
+}
+
 .result {
   margin: 0;
   font-size: 0.85rem;
