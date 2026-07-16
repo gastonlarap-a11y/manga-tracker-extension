@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_BASE_URL, createReadingEvent, pingHealth } from "./client";
+import {
+  API_BASE_URL,
+  createReadingEvent,
+  getAdapter,
+  pingHealth,
+} from "./client";
 import type { CreateEventResponse } from "./types";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -80,7 +85,11 @@ describe("createReadingEvent", () => {
 
     const result = await createReadingEvent(body);
 
-    expect(result).toEqual({ ok: false, error: "Invalid request" });
+    expect(result).toEqual({
+      ok: false,
+      error: "Invalid request",
+      status: 400,
+    });
   });
 
   it("falls back to the HTTP status when the error body is not JSON", async () => {
@@ -88,6 +97,54 @@ describe("createReadingEvent", () => {
 
     const result = await createReadingEvent(body);
 
-    expect(result).toEqual({ ok: false, error: "HTTP 502" });
+    expect(result).toEqual({ ok: false, error: "HTTP 502", status: 502 });
+  });
+});
+
+describe("getAdapter", () => {
+  const adapter = {
+    id: "adapter-1",
+    domain: "example.com",
+    titleSelector: "h1.title",
+    chapterSelector: null,
+    chapterUrlRegex: null,
+    createdAt: "2026-07-16T12:00:00.000Z",
+    updatedAt: "2026-07-16T12:00:00.000Z",
+  };
+
+  it("returns the stored adapter", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(adapter, 200));
+
+    const result = await getAdapter("example.com");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_BASE_URL}/api/adapters/example.com`,
+      undefined,
+    );
+    expect(result).toEqual({ ok: true, data: adapter });
+  });
+
+  it("maps a 404 to a null adapter instead of a failure", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "Adapter not found" }, 404),
+    );
+
+    const result = await getAdapter("example.com");
+
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("keeps other failures as errors", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "Internal Server Error" }, 500),
+    );
+
+    const result = await getAdapter("example.com");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Internal Server Error",
+      status: 500,
+    });
   });
 });

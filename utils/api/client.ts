@@ -2,13 +2,16 @@ import type {
   CreateEventBody,
   CreateEventResponse,
   HealthResponse,
+  SiteAdapterDto,
 } from "./types";
 
 // Single place that knows where the backend lives (mirrors the API's rule
 // that only config.ts reads the environment).
 export const API_BASE_URL = "http://localhost:5150";
 
-export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; status?: number };
 
 export function pingHealth(): Promise<ApiResult<HealthResponse>> {
   return request<HealthResponse>("/health");
@@ -22,6 +25,19 @@ export function createReadingEvent(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+// 404 means "no adapter calibrated yet" — a normal outcome, not a failure.
+export async function getAdapter(
+  domain: string,
+): Promise<ApiResult<SiteAdapterDto | null>> {
+  const result = await request<SiteAdapterDto>(
+    `/api/adapters/${encodeURIComponent(domain)}`,
+  );
+  if (!result.ok && result.status === 404) {
+    return { ok: true, data: null };
+  }
+  return result;
 }
 
 async function request<T>(
@@ -46,7 +62,11 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    return { ok: false, error: extractErrorMessage(body, response.status) };
+    return {
+      ok: false,
+      error: extractErrorMessage(body, response.status),
+      status: response.status,
+    };
   }
   // Cast justified: the API's OpenAPI schema is the contract and its types are
   // duplicated by hand in ./types.ts — this is the trust boundary with the

@@ -30,6 +30,16 @@ export interface CreateEventResponse {
   event: ReadingEventDto;
 }
 
+export interface SiteAdapterDto {
+  id: string;
+  domain: string;
+  titleSelector: string;
+  chapterSelector: string | null;
+  chapterUrlRegex: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface HealthResponse {
   status: "ok";
 }
