@@ -635,6 +635,14 @@ Lección recurrente confirmada una vez más: al crear el entrypoint nuevo, el pa
 `"/content-scripts/calibration.js"` dio TS2820 hasta correr `bunx wxt prepare`
 (regenera el tipo `ScriptPublicPath`).
 
+### 11d. Portadas para el dashboard (agregado posterior)
+
+`coverFromDocument(doc)` en `page-signals.ts`: lee `og:image` (fallback
+`twitter:image`), lo resuelve contra `doc.baseURI` (cubre URLs relativas) y solo
+acepta esquemas http(s). El detector lo adjunta como `coverUrl` opcional del
+`record-event` y el backend lo persiste en el manga — así el dashboard muestra
+portadas sin scraping extra: la extensión ya estaba parada en la página.
+
 ---
 
 ## 12. Cómo se prueba y se opera
