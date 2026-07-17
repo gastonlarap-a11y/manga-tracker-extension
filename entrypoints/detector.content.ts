@@ -1,6 +1,7 @@
 import { browser, defineContentScript } from "#imports";
 import { detectReading } from "@/utils/detection/detect";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
+import { coverFromDocument } from "@/utils/detection/page-signals";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
 
 // SPAs swap content without reloading; wait for the page to settle before
@@ -49,12 +50,14 @@ export default defineContentScript({
         return;
       }
 
+      const coverUrl = coverFromDocument(document);
       const recorded = await sendRuntimeMessage({
         kind: "record-event",
         payload: {
           mangaName: detection.mangaName,
           chapterLabel: detection.chapterLabel,
           sourceUrl: url,
+          ...(coverUrl ? { coverUrl } : {}),
         },
       });
       if (recorded.ok) {

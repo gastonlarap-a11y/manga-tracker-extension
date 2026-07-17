@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { collectPageSignals } from "./page-signals";
+import { collectPageSignals, coverFromDocument } from "./page-signals";
 
 const URL_UNDER_TEST = "https://example.com/one-piece/capitulo/1100";
 
@@ -37,5 +37,34 @@ describe("collectPageSignals", () => {
     expect(signals.ogTitle).toBeNull();
     expect(signals.twitterTitle).toBeNull();
     expect(signals.firstHeading).toBe("Second heading");
+  });
+});
+
+describe("coverFromDocument", () => {
+  it("returns the og:image url", () => {
+    document.head.innerHTML =
+      '<meta property="og:image" content="https://cdn.example.com/cover.jpg" />';
+
+    expect(coverFromDocument(document)).toBe(
+      "https://cdn.example.com/cover.jpg",
+    );
+  });
+
+  it("falls back to twitter:image", () => {
+    document.head.innerHTML =
+      '<meta name="twitter:image" content="https://cdn.example.com/tw.jpg" />';
+
+    expect(coverFromDocument(document)).toBe("https://cdn.example.com/tw.jpg");
+  });
+
+  it("returns null when the page declares no image", () => {
+    expect(coverFromDocument(document)).toBeNull();
+  });
+
+  it("rejects non-http schemes", () => {
+    document.head.innerHTML =
+      '<meta property="og:image" content="data:image/png;base64,xyz" />';
+
+    expect(coverFromDocument(document)).toBeNull();
   });
 });

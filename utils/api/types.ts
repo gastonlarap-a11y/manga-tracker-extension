@@ -23,6 +23,7 @@ export interface CreateEventBody {
   mangaName: string;
   chapterLabel: string;
   sourceUrl: string;
+  coverUrl?: string;
 }
 
 export interface CreateEventResponse {
