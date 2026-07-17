@@ -1,5 +1,10 @@
 import { browser, defineContentScript } from "#imports";
-import { huntCover } from "@/utils/detection/cover-hunt";
+import {
+  huntCover,
+  isSeriesPath,
+  matchLibraryEntry,
+  pickSeriesPageCover,
+} from "@/utils/detection/cover-hunt";
 import { detectReading } from "@/utils/detection/detect";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
@@ -27,6 +32,7 @@ export default defineContentScript({
     window.__mangaTrackerDetectorLoaded = true;
 
     let lastReportedUrl: string | null = null;
+    let lastCoverCheckUrl: string | null = null;
     let settleTimer: number | undefined;
 
     async function detectAndReport(): Promise<void> {
@@ -46,7 +52,18 @@ export default defineContentScript({
       // why a page did or did not track.
       console.debug("[manga-tracker] detection", url, detection);
       void sendRuntimeMessage({ kind: "report-detection", url, detection });
-      if (!detection.detected || detection.confidence < CONFIDENCE_THRESHOLD) {
+      if (!detection.detected) {
+        // Level 4 of the cover hunt: not a chapter, but it may be the RENDERED
+        // series page of a tracked manga (the only place SPAs show the cover).
+        if (
+          detection.reason === "no-chapter-in-url" &&
+          isSeriesPath(location.pathname)
+        ) {
+          void captureSeriesCover(url);
+        }
+        return;
+      }
+      if (detection.confidence < CONFIDENCE_THRESHOLD) {
         return;
       }
 
@@ -81,6 +98,37 @@ export default defineContentScript({
       void sendRuntimeMessage({
         kind: "record-event",
         payload: { mangaName, chapterLabel, sourceUrl, coverUrl },
+      });
+    }
+
+    // Series pages of SPAs render late; the title observer re-runs detection,
+    // so only mark the URL as done once a cover was actually sent — failed
+    // matches get retried when the page finishes rendering.
+    async function captureSeriesCover(url: string): Promise<void> {
+      if (url === lastCoverCheckUrl) {
+        return;
+      }
+      const library = await sendRuntimeMessage({ kind: "get-library" });
+      if (!library.ok) {
+        return;
+      }
+      const heading = document.querySelector("h1")?.textContent ?? "";
+      const entry = matchLibraryEntry(
+        library.data,
+        `${document.title} ${heading}`,
+      );
+      if (!entry) {
+        return;
+      }
+      const coverUrl = pickSeriesPageCover(document, entry.canonicalName);
+      if (!coverUrl) {
+        return;
+      }
+      lastCoverCheckUrl = url;
+      void sendRuntimeMessage({
+        kind: "set-cover",
+        mangaId: entry.id,
+        coverUrl,
       });
     }
 

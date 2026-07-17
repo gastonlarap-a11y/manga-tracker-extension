@@ -62,6 +62,27 @@ describe("isRuntimeMessage", () => {
     ).toBe(true);
   });
 
+  it("accepts a get-library message", () => {
+    expect(isRuntimeMessage({ kind: "get-library" })).toBe(true);
+  });
+
+  it("accepts set-cover only with mangaId and coverUrl strings", () => {
+    expect(
+      isRuntimeMessage({
+        kind: "set-cover",
+        mangaId: "m1",
+        coverUrl: "https://cdn.example.com/cover.webp",
+      }),
+    ).toBe(true);
+    expect(isRuntimeMessage({ kind: "set-cover", mangaId: "m1" })).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "set-cover",
+        coverUrl: "https://cdn.example.com/cover.webp",
+      }),
+    ).toBe(false);
+  });
+
   it("rejects unknown kinds and non-objects", () => {
     expect(isRuntimeMessage({ kind: "other" })).toBe(false);
     expect(isRuntimeMessage(null)).toBe(false);

@@ -166,6 +166,39 @@ describe("handleMessage", () => {
     expect(response).toEqual({ ok: true, data: null });
   });
 
+  it("routes get-library to the library endpoint", async () => {
+    const entries = [{ id: "m1", canonicalName: "One Piece", coverUrl: null }];
+    fetchMock.mockResolvedValue(jsonResponse(entries, 200));
+
+    const response = await handleMessage({ kind: "get-library" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/library",
+      undefined,
+    );
+    expect(response).toEqual({ ok: true, data: entries });
+  });
+
+  it("routes set-cover to the manga update endpoint", async () => {
+    const manga = { id: "m1", coverUrl: "https://cdn.example.com/c.webp" };
+    fetchMock.mockResolvedValue(jsonResponse(manga, 200));
+
+    const response = await handleMessage({
+      kind: "set-cover",
+      mangaId: "m1",
+      coverUrl: "https://cdn.example.com/c.webp",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/mangas/m1",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ coverUrl: "https://cdn.example.com/c.webp" }),
+      }),
+    );
+    expect(response).toEqual({ ok: true, data: manga });
+  });
+
   it("saves an adapter and asks the sender tab to re-detect", async () => {
     const adapter = { id: "a1", domain: "example.com" };
     fetchMock.mockResolvedValue(jsonResponse(adapter, 200));

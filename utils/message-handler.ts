@@ -4,7 +4,9 @@ import {
   createAdapter,
   createReadingEvent,
   getAdapter,
+  getLibrary,
   pingHealth,
+  setMangaCover,
 } from "./api/client";
 import type { CreateAdapterBody, CreateEventResponse } from "./api/types";
 import { getDetection, recordDetection } from "./detection-log";
@@ -55,6 +57,10 @@ export function handleMessage(
       return startCalibration(message.tabId);
     case "save-adapter":
       return saveAdapter(message.body, senderTabId);
+    case "get-library":
+      return getLibrary();
+    case "set-cover":
+      return setMangaCover(message.mangaId, message.coverUrl);
   }
 }
 

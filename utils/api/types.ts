@@ -36,6 +36,20 @@ export interface CreateEventResponse {
   event: ReadingEventDto;
 }
 
+export interface LibraryEntryDto {
+  id: string;
+  canonicalName: string;
+  normalizedSlug: string;
+  coverUrl: string | null;
+  status: MangaStatus;
+  tags: string[];
+  reachedChapter: { number: number; label: string } | null;
+  lastActivity: { readAt: string; chapterLabel: string } | null;
+  lastSourceUrl: string | null;
+  readCount: number;
+  sourceDomains: string[];
+}
+
 export interface CreateAdapterBody {
   domain: string;
   titleSelector: string;

@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LibraryEntryDto } from "../api/types";
 import {
   coverFromSeriesDocument,
   findSeriesLink,
   huntCover,
+  isSeriesPath,
+  matchLibraryEntry,
   nameMatches,
   pickCoverFromImages,
+  pickSeriesPageCover,
 } from "./cover-hunt";
 
 const PAGE_URL = "https://olympusxyz.com/capitulo/128179/comic-de-duende";
@@ -118,6 +122,119 @@ describe("pickCoverFromImages", () => {
     expect(pickCoverFromImages(document, NAME)).toBe(
       "https://olympusxyz.com/thumbs/duende.webp",
     );
+  });
+});
+
+function libraryEntry(overrides: Partial<LibraryEntryDto>): LibraryEntryDto {
+  return {
+    id: "m1",
+    canonicalName: NAME,
+    normalizedSlug: "de-duende-a-dios-goblin",
+    coverUrl: null,
+    status: "reading",
+    tags: [],
+    reachedChapter: null,
+    lastActivity: null,
+    lastSourceUrl: null,
+    readCount: 0,
+    sourceDomains: [],
+    ...overrides,
+  };
+}
+
+describe("isSeriesPath", () => {
+  it.each([
+    ["/series/comic-de-duende-a-dios-goblin-20260716", true],
+    ["/manhwa/carnicero-marcial", true],
+    ["/leer/carnicero-marcial_1750256573107-36_01", false],
+    ["/capitulo/1187745088806715393/", false],
+  ])("classifies %s → %s", (pathname, expected) => {
+    expect(isSeriesPath(pathname)).toBe(expected);
+  });
+});
+
+describe("matchLibraryEntry", () => {
+  const pageText = "Carnicero Marcial - Manhwaweb Carnicero Marcial";
+
+  it("picks the uncovered entry whose name matches the page", () => {
+    const entries = [
+      libraryEntry({ id: "m1" }),
+      libraryEntry({ id: "m2", canonicalName: "Carnicero Marcial" }),
+    ];
+
+    expect(matchLibraryEntry(entries, pageText)?.id).toBe("m2");
+  });
+
+  it("skips entries that already have a cover", () => {
+    const entries = [
+      libraryEntry({
+        id: "m2",
+        canonicalName: "Carnicero Marcial",
+        coverUrl: "https://cdn.example.com/covers/carnicero.webp",
+      }),
+    ];
+
+    expect(matchLibraryEntry(entries, pageText)).toBeNull();
+  });
+
+  it("returns null when no name overlaps the page text", () => {
+    expect(matchLibraryEntry([libraryEntry({})], "Otra cosa")).toBeNull();
+  });
+});
+
+describe("pickSeriesPageCover", () => {
+  function appendImage(
+    src: string,
+    alt: string,
+    width: number,
+    height: number,
+  ): void {
+    const img = document.createElement("img");
+    img.setAttribute("src", src);
+    img.setAttribute("alt", alt);
+    setNaturalSize(img, width, height);
+    document.body.append(img);
+  }
+
+  it("prefers a non-branding og:image", () => {
+    document.head.innerHTML =
+      '<meta property="og:image" content="https://cdn.example.com/covers/duende.webp" />';
+    appendImage("https://cdn.example.com/other.webp", "", 300, 450);
+
+    expect(pickSeriesPageCover(document, NAME)).toBe(
+      "https://cdn.example.com/covers/duende.webp",
+    );
+  });
+
+  it("prefers the image naming the manga over a larger portrait", () => {
+    appendImage("https://cdn.example.com/big-portrait.webp", "", 600, 900);
+    appendImage(
+      "https://cdn.example.com/duende.webp",
+      "De duende a Dios Goblin",
+      200,
+      300,
+    );
+
+    expect(pickSeriesPageCover(document, NAME)).toBe(
+      "https://cdn.example.com/duende.webp",
+    );
+  });
+
+  it("falls back to the largest portrait image", () => {
+    appendImage("https://cdn.example.com/small.webp", "", 150, 220);
+    appendImage("https://cdn.example.com/hero.webp", "", 400, 600);
+
+    expect(pickSeriesPageCover(document, NAME)).toBe(
+      "https://cdn.example.com/hero.webp",
+    );
+  });
+
+  it("excludes panels, landscape images and branding", () => {
+    appendImage("https://cdn.example.com/panel.webp", "", 800, 12000);
+    appendImage("https://cdn.example.com/wide-banner-art.webp", "", 400, 500);
+    appendImage("https://cdn.example.com/screenshot.webp", "", 500, 300);
+
+    expect(pickSeriesPageCover(document, NAME)).toBeNull();
   });
 });
 

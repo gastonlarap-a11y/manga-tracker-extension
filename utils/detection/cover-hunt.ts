@@ -1,3 +1,4 @@
+import type { LibraryEntryDto } from "../api/types";
 import { coverFromDocument, resolveImageUrl } from "./page-signals";
 
 // Three-level, best-effort hunt for the manga's real cover. It only runs when
@@ -166,6 +167,82 @@ async function coverFromSeriesPage(
   } catch {
     return null;
   }
+}
+
+export function isSeriesPath(pathname: string): boolean {
+  return SERIES_PATH_PATTERN.test(pathname);
+}
+
+// Level 4 (SPA sites like manhwaweb, whose fetched series page is an empty
+// shell): when the USER visits the rendered series page of a tracked site,
+// pick which library manga without a cover it belongs to.
+export function matchLibraryEntry(
+  entries: LibraryEntryDto[],
+  pageText: string,
+): LibraryEntryDto | null {
+  let best: { entry: LibraryEntryDto; hits: number } | null = null;
+  const haystack = normalize(pageText);
+  for (const entry of entries) {
+    if (entry.coverUrl !== null) {
+      continue;
+    }
+    const words = significantWords(entry.canonicalName);
+    if (words.length === 0) {
+      continue;
+    }
+    const hits = words.filter((word) => haystack.includes(word)).length;
+    if (hits * 2 < words.length) {
+      continue;
+    }
+    if (!best || hits > best.hits) {
+      best = { entry, hits };
+    }
+  }
+  return best?.entry ?? null;
+}
+
+// Cover on a RENDERED series page: og:image → image matching the name by
+// alt/src → the largest portrait image (a series page has no chapter panels,
+// so its hero cover is the biggest portrait img by far).
+export function pickSeriesPageCover(
+  doc: Document,
+  mangaName: string,
+): string | null {
+  const fromMeta = coverFromDocument(doc);
+  if (fromMeta) {
+    return fromMeta;
+  }
+
+  let named: string | null = null;
+  let largest: { href: string; area: number } | null = null;
+  for (const img of doc.querySelectorAll("img")) {
+    if (!(img instanceof HTMLImageElement)) {
+      continue;
+    }
+    const width = img.naturalWidth;
+    const height = img.naturalHeight;
+    if (width < 120 || width > 1000) {
+      continue;
+    }
+    const ratio = height / Math.max(width, 1);
+    if (ratio < 1.15 || ratio > 2.2) {
+      continue;
+    }
+    const src = img.getAttribute("src") ?? "";
+    const resolved = resolveImageUrl(src, doc.baseURI);
+    if (!resolved) {
+      continue;
+    }
+    const alt = img.getAttribute("alt") ?? "";
+    if (named === null && nameMatches(mangaName, `${alt} ${src}`)) {
+      named = resolved;
+    }
+    const area = width * height;
+    if (!largest || area > largest.area) {
+      largest = { href: resolved, area };
+    }
+  }
+  return named ?? largest?.href ?? null;
 }
 
 // fetchFn is injectable so tests never touch the network.

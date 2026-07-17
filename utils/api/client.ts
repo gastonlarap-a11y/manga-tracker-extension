@@ -3,6 +3,8 @@ import type {
   CreateEventBody,
   CreateEventResponse,
   HealthResponse,
+  LibraryEntryDto,
+  MangaDto,
   SiteAdapterDto,
 } from "./types";
 
@@ -25,6 +27,23 @@ export function createReadingEvent(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+export function getLibrary(): Promise<ApiResult<LibraryEntryDto[]>> {
+  return request<LibraryEntryDto[]>("/api/library");
+}
+
+// Used by the opportunistic cover capture on rendered series pages; only
+// called for mangas that have no cover yet.
+export function setMangaCover(
+  mangaId: string,
+  coverUrl: string,
+): Promise<ApiResult<MangaDto>> {
+  return request<MangaDto>(`/api/mangas/${encodeURIComponent(mangaId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ coverUrl }),
   });
 }
 

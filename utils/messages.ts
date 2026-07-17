@@ -5,6 +5,8 @@ import type {
   CreateEventBody,
   CreateEventResponse,
   HealthResponse,
+  LibraryEntryDto,
+  MangaDto,
   SiteAdapterDto,
 } from "./api/types";
 import type { Detection } from "./detection/heuristics";
@@ -20,7 +22,9 @@ export type RuntimeMessage =
   | { kind: "report-detection"; url: string; detection: Detection }
   | { kind: "get-detection"; tabId: number }
   | { kind: "start-calibration"; tabId: number }
-  | { kind: "save-adapter"; body: CreateAdapterBody };
+  | { kind: "save-adapter"; body: CreateAdapterBody }
+  | { kind: "get-library" }
+  | { kind: "set-cover"; mangaId: string; coverUrl: string };
 
 export interface MessageResponses {
   ping: ApiResult<HealthResponse>;
@@ -33,6 +37,8 @@ export interface MessageResponses {
   "get-detection": DetectionEntry | null;
   "start-calibration": ApiResult<null>;
   "save-adapter": ApiResult<SiteAdapterDto>;
+  "get-library": ApiResult<LibraryEntryDto[]>;
+  "set-cover": ApiResult<MangaDto>;
 }
 
 // Command sent the other way around (background → content script via
@@ -54,6 +60,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
   }
   switch (value.kind) {
     case "ping":
+    case "get-library":
       return true;
     case "send-test-event":
     case "get-detection":
@@ -83,6 +90,13 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
       );
     case "save-adapter":
       return "body" in value && isCreateAdapterBody(value.body);
+    case "set-cover":
+      return (
+        "mangaId" in value &&
+        typeof value.mangaId === "string" &&
+        "coverUrl" in value &&
+        typeof value.coverUrl === "string"
+      );
     default:
       return false;
   }
