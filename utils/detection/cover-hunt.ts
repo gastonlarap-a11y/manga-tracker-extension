@@ -203,7 +203,10 @@ export function matchLibraryEntry(
 
 // Cover on a RENDERED series page: og:image → image matching the name by
 // alt/src → the largest portrait image (a series page has no chapter panels,
-// so its hero cover is the biggest portrait img by far).
+// so its hero cover is the biggest portrait img by far). Unlike the chapter
+// page filter there is NO upper width cap: fichas serve covers at full
+// resolution (manhwaweb: 1472×2364) and portrait ratio already rules out
+// banners and panel strips.
 export function pickSeriesPageCover(
   doc: Document,
   mangaName: string,
@@ -219,22 +222,26 @@ export function pickSeriesPageCover(
     if (!(img instanceof HTMLImageElement)) {
       continue;
     }
-    const width = img.naturalWidth;
-    const height = img.naturalHeight;
-    if (width < 120 || width > 1000) {
+    // While the bytes are still downloading (or the img is lazy) natural
+    // dimensions are 0 — the rendered box is already cover-shaped, and the
+    // URL is usable without waiting for pixels.
+    const rect = img.getBoundingClientRect();
+    const width = img.naturalWidth || rect.width;
+    const height = img.naturalHeight || rect.height;
+    if (width < 120) {
       continue;
     }
     const ratio = height / Math.max(width, 1);
     if (ratio < 1.15 || ratio > 2.2) {
       continue;
     }
-    const src = img.getAttribute("src") ?? "";
+    const src = img.currentSrc || img.getAttribute("src") || "";
     const resolved = resolveImageUrl(src, doc.baseURI);
     if (!resolved) {
       continue;
     }
     const alt = img.getAttribute("alt") ?? "";
-    if (named === null && nameMatches(mangaName, `${alt} ${src}`)) {
+    if (named === null && nameMatches(mangaName, `${alt} ${decodeUrl(src)}`)) {
       named = resolved;
     }
     const area = width * height;
@@ -243,6 +250,16 @@ export function pickSeriesPageCover(
     }
   }
   return named ?? largest?.href ?? null;
+}
+
+// Accented slugs arrive percent-encoded in src ("m%C3%A1gico"), which would
+// hide their words from the name match.
+function decodeUrl(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 // fetchFn is injectable so tests never touch the network.

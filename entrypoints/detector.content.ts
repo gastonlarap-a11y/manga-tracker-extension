@@ -13,6 +13,11 @@ import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
 // detecting (project plan, phase 6/8).
 const SETTLE_DELAY_MS = 2000;
 
+// Bounded polling for the series-page cover capture (~10.5s total): long
+// enough for a slow ficha to render and its hero image to get a src.
+const COVER_CAPTURE_ATTEMPTS = 8;
+const COVER_CAPTURE_RETRY_MS = 1500;
+
 declare global {
   interface Window {
     // Guards against double injection (registered script + explicit
@@ -33,6 +38,7 @@ export default defineContentScript({
 
     let lastReportedUrl: string | null = null;
     let lastCoverCheckUrl: string | null = null;
+    let activeCaptureUrl: string | null = null;
     let settleTimer: number | undefined;
 
     async function detectAndReport(): Promise<void> {
@@ -101,16 +107,39 @@ export default defineContentScript({
       });
     }
 
-    // Series pages of SPAs render late; the title observer re-runs detection,
-    // so only mark the URL as done once a cover was actually sent — failed
-    // matches get retried when the page finishes rendering.
+    // SPA series pages render (and load their hero image) well after the
+    // settle delay, so the capture polls on its own bounded schedule instead
+    // of hoping for another title mutation. Only a SENT cover marks the URL
+    // as done; every decision lands in console.debug so a field report is
+    // one F12 away.
     async function captureSeriesCover(url: string): Promise<void> {
-      if (url === lastCoverCheckUrl) {
+      if (url === lastCoverCheckUrl || url === activeCaptureUrl) {
         return;
       }
+      activeCaptureUrl = url;
+      try {
+        for (let attempt = 0; attempt < COVER_CAPTURE_ATTEMPTS; attempt++) {
+          if (attempt > 0) {
+            await sleep(COVER_CAPTURE_RETRY_MS);
+          }
+          if (location.href !== url || url === lastCoverCheckUrl) {
+            return;
+          }
+          if (await tryCaptureCoverOnce()) {
+            lastCoverCheckUrl = url;
+            return;
+          }
+        }
+        console.debug("[manga-tracker] cover capture gave up", url);
+      } finally {
+        activeCaptureUrl = null;
+      }
+    }
+
+    async function tryCaptureCoverOnce(): Promise<boolean> {
       const library = await sendRuntimeMessage({ kind: "get-library" });
       if (!library.ok) {
-        return;
+        return false;
       }
       const heading = document.querySelector("h1")?.textContent ?? "";
       const entry = matchLibraryEntry(
@@ -118,18 +147,31 @@ export default defineContentScript({
         `${document.title} ${heading}`,
       );
       if (!entry) {
-        return;
+        console.debug(
+          "[manga-tracker] cover capture: no uncovered manga matches",
+          document.title,
+        );
+        return false;
       }
       const coverUrl = pickSeriesPageCover(document, entry.canonicalName);
       if (!coverUrl) {
-        return;
+        console.debug(
+          "[manga-tracker] cover capture: no candidate image yet for",
+          entry.canonicalName,
+        );
+        return false;
       }
-      lastCoverCheckUrl = url;
+      console.debug("[manga-tracker] cover capture: sending", coverUrl);
       void sendRuntimeMessage({
         kind: "set-cover",
         mangaId: entry.id,
         coverUrl,
       });
+      return true;
+    }
+
+    function sleep(ms: number): Promise<void> {
+      return new Promise((resolve) => ctx.setTimeout(resolve, ms));
     }
 
     function scheduleDetection(): void {

@@ -236,6 +236,43 @@ describe("pickSeriesPageCover", () => {
 
     expect(pickSeriesPageCover(document, NAME)).toBeNull();
   });
+
+  it("accepts a full-resolution hero cover (manhwaweb serves 1472×2364)", () => {
+    appendImage("https://cdn.example.com/thumb.webp", "", 150, 220);
+    appendImage("https://img1mw.xyz/manhwas/x/cover_123.webp", "", 1472, 2364);
+
+    expect(pickSeriesPageCover(document, NAME)).toBe(
+      "https://img1mw.xyz/manhwas/x/cover_123.webp",
+    );
+  });
+
+  it("uses the rendered box while the image bytes are still loading", () => {
+    const img = document.createElement("img");
+    img.setAttribute("src", "https://cdn.example.com/still-loading.webp");
+    setNaturalSize(img, 0, 0);
+    img.getBoundingClientRect = () =>
+      // Cast justified: only width/height are read from the rect.
+      ({ width: 220, height: 330 }) as DOMRect;
+    document.body.append(img);
+
+    expect(pickSeriesPageCover(document, NAME)).toBe(
+      "https://cdn.example.com/still-loading.webp",
+    );
+  });
+
+  it("name-matches a percent-encoded src despite accents", () => {
+    appendImage("https://cdn.example.com/big-portrait.webp", "", 600, 900);
+    appendImage(
+      "https://img1mw.xyz/manhwas/emperador_m%C3%A1gico_1703957316968/cover_9.webp",
+      "",
+      200,
+      300,
+    );
+
+    expect(pickSeriesPageCover(document, "Emperador Magico")).toBe(
+      "https://img1mw.xyz/manhwas/emperador_m%C3%A1gico_1703957316968/cover_9.webp",
+    );
+  });
 });
 
 describe("huntCover", () => {
