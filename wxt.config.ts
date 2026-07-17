@@ -12,5 +12,15 @@ export default defineConfig({
     permissions: ["storage", "activeTab", "scripting"],
     host_permissions: ["http://localhost:5150/*"],
     optional_host_permissions: ["https://*/*", "http://*/*"],
+    // The calibration overlay is a runtime-registered content script, so WXT
+    // cannot infer which sites may load its CSS and emits an empty `matches`
+    // (= no site can → createShadowRootUi fails silently everywhere). Declare
+    // it ourselves for any tracked site.
+    web_accessible_resources: [
+      {
+        resources: ["content-scripts/calibration.css"],
+        matches: ["http://*/*", "https://*/*"],
+      },
+    ],
   },
 });

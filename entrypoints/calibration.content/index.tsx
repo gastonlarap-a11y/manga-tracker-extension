@@ -12,7 +12,9 @@ declare global {
 
 // Injected on demand from the popup ("Calibrar detección"); never registered
 // in the manifest. Renders inside a Shadow DOM so the page styles and ours
-// cannot leak into each other.
+// cannot leak into each other. NOTE: its CSS must be listed under
+// web_accessible_resources with real matches (wxt.config.ts) or the mount
+// fails on every site.
 export default defineContentScript({
   registration: "runtime",
   cssInjectionMode: "ui",
@@ -22,29 +24,36 @@ export default defineContentScript({
     }
     window.__mangaTrackerCalibrationActive = true;
 
-    const ui = await createShadowRootUi(ctx, {
-      name: "manga-tracker-calibration",
-      position: "modal",
-      zIndex: 2147483647,
-      onMount: (container) => {
-        const app = document.createElement("div");
-        container.append(app);
-        const root = ReactDOM.createRoot(app);
-        root.render(
-          <CalibrationApp
-            onClose={() => {
-              window.__mangaTrackerCalibrationActive = false;
-              ui.remove();
-            }}
-          />,
-        );
-        return root;
-      },
-      onRemove: (root) => {
-        root?.unmount();
-      },
-    });
+    try {
+      const ui = await createShadowRootUi(ctx, {
+        name: "manga-tracker-calibration",
+        position: "modal",
+        zIndex: 2147483647,
+        onMount: (container) => {
+          const app = document.createElement("div");
+          container.append(app);
+          const root = ReactDOM.createRoot(app);
+          root.render(
+            <CalibrationApp
+              onClose={() => {
+                window.__mangaTrackerCalibrationActive = false;
+                ui.remove();
+              }}
+            />,
+          );
+          return root;
+        },
+        onRemove: (root) => {
+          root?.unmount();
+        },
+      });
 
-    ui.mount();
+      ui.mount();
+    } catch (cause) {
+      // A silent failure here already bit us once (web_accessible_resources
+      // with empty matches) — make any mount error visible in the console.
+      window.__mangaTrackerCalibrationActive = false;
+      console.error("[manga-tracker] calibration overlay failed", cause);
+    }
   },
 });
