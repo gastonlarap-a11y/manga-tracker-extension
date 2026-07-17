@@ -1,0 +1,72 @@
+/* The backdrop covers the viewport but lets every event through: picks land
+   on the page itself and are captured at document level. Only the bar is
+   interactive. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.bar {
+  pointer-events: auto;
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  max-width: min(92vw, 720px);
+  background: #1a1b26;
+  color: #c0caf5;
+  border: 1px solid #2f334d;
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+.bar strong {
+  color: #7aa2f7;
+}
+
+.error {
+  color: #f7768e;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+button {
+  background: #7aa2f7;
+  color: #16161e;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.ghost {
+  background: transparent;
+  color: #565f89;
+  border: 1px solid #2f334d;
+  font-weight: 400;
+}
+
+button.ghost:hover {
+  color: #c0caf5;
+}
