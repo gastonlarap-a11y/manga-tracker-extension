@@ -643,6 +643,11 @@ acepta esquemas http(s). El detector lo adjunta como `coverUrl` opcional del
 `record-event` y el backend lo persiste en el manga — así el dashboard muestra
 portadas sin scraping extra: la extensión ya estaba parada en la página.
 
+Refinamiento por un caso real: Olympus declara su LOGO (`/olympus-logo-180.webp`)
+como og:image. `coverFromDocument` descarta pathnames con pinta de branding
+(`logo|banner|favicon|icon|default|placeholder`) — mejor no mandar nada (el usuario
+puede fijar la portada a mano en el dashboard) que llenar la biblioteca de logos.
+
 ---
 
 ## 12. Cómo se prueba y se opera
