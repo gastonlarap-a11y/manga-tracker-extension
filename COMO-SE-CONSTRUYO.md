@@ -726,9 +726,19 @@ origen, no por path), así que la pieza encaja sin permisos nuevos:
   no pasa nada.
 - `pickSeriesPageCover(doc, mangaName)` (`cover-hunt.ts`) — sobre el DOM renderizado:
   og:image (filtrado anti-branding) → img cuyo alt/src nombre al manga → **la img
-  retrato más grande** (`naturalWidth` 120–1000, aspecto 1.15–2.2). La ventana es más
-  generosa que la del nivel 3 porque una ficha no tiene paneles: su portada hero es
-  por lejos la mayor imagen retrato de la página.
+  retrato más grande** (ancho ≥120, aspecto 1.15–2.2, SIN tope superior de ancho).
+  El tope de ancho existió en la primera versión (heredado del nivel 3) y costó un
+  caso real: la portada hero de "Emperador Mágico" en manhwaweb mide **1472×2364** y
+  quedaba excluida por `naturalWidth > 1000` — mientras la del Carnicero (300×440)
+  pasaba. Lección: en una FICHA no hay paneles que excluir por tamaño; el
+  discriminador correcto es la PROPORCIÓN retrato (los banners son apaisados y las
+  tiras de capítulo tienen ratio >2.2), no un tope de píxeles. Tres endurecimientos
+  más de esa misma pasada: (1) si `naturalWidth` es 0 (imagen aún descargándose o
+  `loading="lazy"`) se usa el box renderizado (`getBoundingClientRect`) — la caja ya
+  es retrato antes de que lleguen los bytes y el src ya es usable; (2) la URL sale de
+  `currentSrc || getAttribute("src")` (cubre srcset y librerías lazy); (3) el
+  name-match por src decodifica percent-encoding (`m%C3%A1gico` cuenta como
+  "magico").
 - Mensajería nueva: `get-library` → `GET /api/library` y `set-cover {mangaId,
   coverUrl}` → `PUT /api/mangas/:id` (el endpoint que ya existía para la edición
   manual desde el dashboard) — con sus guards en `isRuntimeMessage`, ramas en
@@ -737,11 +747,16 @@ origen, no por path), así que la pieza encaja sin permisos nuevos:
   cambia en el API → cambia aquí en el mismo commit).
 - Integración (`detector.content.ts`): cuando la detección devuelve
   `no-chapter-in-url` Y `isSeriesPath(location.pathname)` → `captureSeriesCover(url)`:
-  pide la biblioteca, matchea, extrae y manda `set-cover`. El guard
-  `lastCoverCheckUrl` se marca **solo tras enviar una portada** — si la SPA aún no
-  renderizó las imágenes, el observer de `<title>` re-dispara la detección y el
-  intento se repite hasta que haya algo que extraer. El SSE del backend hace el
-  resto: la tarjeta del dashboard recibe la portada en segundos.
+  **bucle acotado propio** (8 intentos × 1500 ms ≈ 10.5 s) que en cada vuelta pide la
+  biblioteca, matchea (`document.title + h1`), extrae y manda `set-cover`. La primera
+  versión era one-shot y dependía de que `document.title` mutara para reintentar —
+  demasiado frágil para una SPA que renderiza tarde. El bucle se corta al enviar, si
+  `location.href` cambió (el usuario navegó) o al agotar intentos; guard
+  `activeCaptureUrl` evita bucles solapados y `lastCoverCheckUrl` se marca **solo
+  tras enviar una portada**. Cada decisión queda en `console.debug`
+  (`[manga-tracker] cover capture: …`) para que cualquier fallo futuro se
+  diagnostique con F12 en vez de a ciegas. El SSE del backend hace el resto: la
+  tarjeta del dashboard recibe la portada en segundos.
 
 Costo en régimen: cero — en cuanto ningún manga de la biblioteca está sin portada,
 `matchLibraryEntry` devuelve null en el primer filtro y no se manda nada. Los sitios
