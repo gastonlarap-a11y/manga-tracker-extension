@@ -1,4 +1,5 @@
 import { browser, defineBackground } from "#imports";
+import { clearTab } from "@/utils/detection-log";
 import { handleMessage } from "@/utils/message-handler";
 import { isRuntimeMessage } from "@/utils/messages";
 import { syncRegisteredSites } from "@/utils/site-registration";
@@ -9,14 +10,16 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => void resyncDetectors());
   browser.runtime.onStartup.addListener(() => void resyncDetectors());
 
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isRuntimeMessage(message)) {
       return false;
     }
-    void handleMessage(message).then(sendResponse);
+    void handleMessage(message, sender.tab?.id).then(sendResponse);
     // true keeps the message channel open for the async response.
     return true;
   });
+
+  browser.tabs.onRemoved.addListener((tabId) => clearTab(tabId));
 });
 
 async function resyncDetectors(): Promise<void> {

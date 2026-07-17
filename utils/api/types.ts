@@ -30,6 +30,13 @@ export interface CreateEventResponse {
   event: ReadingEventDto;
 }
 
+export interface CreateAdapterBody {
+  domain: string;
+  titleSelector: string;
+  chapterSelector?: string;
+  chapterUrlRegex?: string;
+}
+
 export interface SiteAdapterDto {
   id: string;
   domain: string;

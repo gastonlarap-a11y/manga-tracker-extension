@@ -1,4 +1,5 @@
 import type {
+  CreateAdapterBody,
   CreateEventBody,
   CreateEventResponse,
   HealthResponse,
@@ -21,6 +22,17 @@ export function createReadingEvent(
   body: CreateEventBody,
 ): Promise<ApiResult<CreateEventResponse>> {
   return request<CreateEventResponse>("/api/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// Upsert by domain: recalibrating a site replaces its stored adapter.
+export function createAdapter(
+  body: CreateAdapterBody,
+): Promise<ApiResult<SiteAdapterDto>> {
+  return request<SiteAdapterDto>("/api/adapters", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

@@ -1,11 +1,14 @@
 import { browser } from "#imports";
 import type { ApiResult } from "./api/client";
 import type {
+  CreateAdapterBody,
   CreateEventBody,
   CreateEventResponse,
   HealthResponse,
   SiteAdapterDto,
 } from "./api/types";
+import type { Detection } from "./detection/heuristics";
+import type { DetectionEntry } from "./detection-log";
 
 export type RuntimeMessage =
   | { kind: "ping" }
@@ -13,7 +16,11 @@ export type RuntimeMessage =
   | { kind: "get-adapter"; domain: string }
   | { kind: "record-event"; payload: CreateEventBody }
   | { kind: "register-site"; originPattern: string; tabId: number }
-  | { kind: "unregister-site"; originPattern: string };
+  | { kind: "unregister-site"; originPattern: string }
+  | { kind: "report-detection"; url: string; detection: Detection }
+  | { kind: "get-detection"; tabId: number }
+  | { kind: "start-calibration"; tabId: number }
+  | { kind: "save-adapter"; body: CreateAdapterBody };
 
 export interface MessageResponses {
   ping: ApiResult<HealthResponse>;
@@ -22,6 +29,23 @@ export interface MessageResponses {
   "record-event": ApiResult<CreateEventResponse>;
   "register-site": ApiResult<null>;
   "unregister-site": ApiResult<null>;
+  "report-detection": null;
+  "get-detection": DetectionEntry | null;
+  "start-calibration": ApiResult<null>;
+  "save-adapter": ApiResult<SiteAdapterDto>;
+}
+
+// Command sent the other way around (background → content script via
+// browser.tabs.sendMessage), e.g. after saving an adapter.
+export type ContentCommand = { kind: "detect-now" };
+
+export function isContentCommand(value: unknown): value is ContentCommand {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    value.kind === "detect-now"
+  );
 }
 
 export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
@@ -32,6 +56,8 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case "ping":
       return true;
     case "send-test-event":
+    case "get-detection":
+    case "start-calibration":
       return "tabId" in value && typeof value.tabId === "number";
     case "get-adapter":
       return "domain" in value && typeof value.domain === "string";
@@ -48,6 +74,15 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
       return (
         "originPattern" in value && typeof value.originPattern === "string"
       );
+    case "report-detection":
+      return (
+        "url" in value &&
+        typeof value.url === "string" &&
+        "detection" in value &&
+        isDetection(value.detection)
+      );
+    case "save-adapter":
+      return "body" in value && isCreateAdapterBody(value.body);
     default:
       return false;
   }
@@ -63,6 +98,38 @@ function isCreateEventBody(value: unknown): value is CreateEventBody {
     typeof value.chapterLabel === "string" &&
     "sourceUrl" in value &&
     typeof value.sourceUrl === "string"
+  );
+}
+
+function isCreateAdapterBody(value: unknown): value is CreateAdapterBody {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "domain" in value &&
+    typeof value.domain === "string" &&
+    "titleSelector" in value &&
+    typeof value.titleSelector === "string"
+  );
+}
+
+function isDetection(value: unknown): value is Detection {
+  if (typeof value !== "object" || value === null || !("detected" in value)) {
+    return false;
+  }
+  if (value.detected === true) {
+    return (
+      "mangaName" in value &&
+      typeof value.mangaName === "string" &&
+      "chapterLabel" in value &&
+      typeof value.chapterLabel === "string" &&
+      "confidence" in value &&
+      typeof value.confidence === "number"
+    );
+  }
+  return (
+    value.detected === false &&
+    "reason" in value &&
+    typeof value.reason === "string"
   );
 }
 

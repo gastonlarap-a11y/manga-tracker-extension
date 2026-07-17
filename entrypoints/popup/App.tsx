@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { browser } from "#imports";
 import type { CreateEventResponse } from "@/utils/api/types";
+import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
+import type { DetectionEntry } from "@/utils/detection-log";
 import { sendRuntimeMessage } from "@/utils/messages";
 import "./App.css";
 
@@ -98,6 +100,21 @@ export function App() {
     );
   }
 
+  async function startCalibration(
+    current: Extract<SiteState, { kind: "tracked" }>,
+  ): Promise<void> {
+    const result = await sendRuntimeMessage({
+      kind: "start-calibration",
+      tabId: current.tabId,
+    });
+    if (!result.ok) {
+      setSite({ kind: "error", error: result.error });
+      return;
+    }
+    // The overlay lives on the page; the popup just gets out of the way.
+    window.close();
+  }
+
   async function disableTracking(
     current: Extract<SiteState, { kind: "tracked" }>,
   ): Promise<void> {
@@ -143,6 +160,7 @@ export function App() {
         connected={connection.kind === "connected"}
         onEnable={(current) => void enableTracking(current)}
         onDisable={(current) => void disableTracking(current)}
+        onCalibrate={(current) => void startCalibration(current)}
       />
       <button
         type="button"
@@ -178,11 +196,13 @@ function SiteSection({
   connected,
   onEnable,
   onDisable,
+  onCalibrate,
 }: {
   state: SiteState;
   connected: boolean;
   onEnable: (current: Extract<SiteState, { kind: "untracked" }>) => void;
   onDisable: (current: Extract<SiteState, { kind: "tracked" }>) => void;
+  onCalibrate: (current: Extract<SiteState, { kind: "tracked" }>) => void;
 }) {
   switch (state.kind) {
     case "loading":
@@ -212,11 +232,74 @@ function SiteSection({
           <p>
             <strong>{state.host}</strong>: tracking automático activo.
           </p>
+          <DetectionStatus tabId={state.tabId} />
+          <button
+            type="button"
+            disabled={!connected}
+            onClick={() => onCalibrate(state)}
+          >
+            Calibrar detección
+          </button>
           <button type="button" onClick={() => onDisable(state)}>
             Dejar de trackear
           </button>
         </div>
       );
+  }
+}
+
+type DiagnosisState =
+  | { kind: "loading" }
+  | { kind: "none" }
+  | { kind: "ready"; entry: DetectionEntry };
+
+function DetectionStatus({ tabId }: { tabId: number }) {
+  const [diagnosis, setDiagnosis] = useState<DiagnosisState>({
+    kind: "loading",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void sendRuntimeMessage({ kind: "get-detection", tabId }).then((entry) => {
+      if (!cancelled) {
+        setDiagnosis(entry ? { kind: "ready", entry } : { kind: "none" });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tabId]);
+
+  switch (diagnosis.kind) {
+    case "loading":
+      return null;
+    case "none":
+      return (
+        <p className="diagnosis">
+          Sin detección aún en esta pestaña (abrí o recargá un capítulo).
+        </p>
+      );
+    case "ready":
+      return <p className="diagnosis">{describeDetection(diagnosis.entry)}</p>;
+  }
+}
+
+function describeDetection(entry: DetectionEntry): string {
+  const detection = entry.detection;
+  if (detection.detected) {
+    const percent = Math.round(detection.confidence * 100);
+    if (detection.confidence >= CONFIDENCE_THRESHOLD) {
+      return `Detectado: ${detection.mangaName} — ${detection.chapterLabel} (${percent} %)`;
+    }
+    return `Confianza baja (${percent} %): ${detection.mangaName} — usá "Calibrar detección".`;
+  }
+  switch (detection.reason) {
+    case "no-chapter-in-url":
+      return "La URL no parece de un capítulo (las páginas de catálogo no se guardan).";
+    case "no-chapter-in-title":
+      return 'El título de la página no nombra el capítulo — usá "Calibrar detección".';
+    case "no-title":
+      return 'La página no expone un título utilizable — usá "Calibrar detección".';
   }
 }
 

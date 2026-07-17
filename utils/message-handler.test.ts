@@ -124,4 +124,76 @@ describe("handleMessage", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("stores a reported detection under the sender tab and serves it back", async () => {
+    const detection = {
+      detected: false,
+      reason: "no-chapter-in-title",
+    } as const;
+
+    const ack = await handleMessage(
+      {
+        kind: "report-detection",
+        url: "https://example.com/leer/x",
+        detection,
+      },
+      41,
+    );
+    const stored = await handleMessage({ kind: "get-detection", tabId: 41 });
+
+    expect(ack).toBeNull();
+    expect(stored).toEqual({ url: "https://example.com/leer/x", detection });
+  });
+
+  it("returns null for a tab without a recorded detection", async () => {
+    const stored = await handleMessage({ kind: "get-detection", tabId: 999 });
+
+    expect(stored).toBeNull();
+  });
+
+  it("injects the calibration script on start-calibration", async () => {
+    executeScriptMock.mockResolvedValue([]);
+
+    const response = await handleMessage({
+      kind: "start-calibration",
+      tabId: 5,
+    });
+
+    expect(executeScriptMock).toHaveBeenCalledWith({
+      target: { tabId: 5 },
+      files: ["/content-scripts/calibration.js"],
+    });
+    expect(response).toEqual({ ok: true, data: null });
+  });
+
+  it("saves an adapter and asks the sender tab to re-detect", async () => {
+    const adapter = { id: "a1", domain: "example.com" };
+    fetchMock.mockResolvedValue(jsonResponse(adapter, 200));
+    const sendMessageMock = vi.fn().mockResolvedValue(undefined);
+    // Cast justified: fake-browser's tabs namespace lacks sendMessage; the
+    // test provides the minimal stub the handler calls.
+    fakeBrowser.tabs.sendMessage =
+      sendMessageMock as unknown as typeof fakeBrowser.tabs.sendMessage;
+
+    const response = await handleMessage(
+      {
+        kind: "save-adapter",
+        body: { domain: "example.com", titleSelector: "h1.title" },
+      },
+      12,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/adapters",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          domain: "example.com",
+          titleSelector: "h1.title",
+        }),
+      }),
+    );
+    expect(sendMessageMock).toHaveBeenCalledWith(12, { kind: "detect-now" });
+    expect(response).toEqual({ ok: true, data: adapter });
+  });
 });

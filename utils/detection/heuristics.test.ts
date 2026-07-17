@@ -123,6 +123,34 @@ describe("detectFromHeuristics", () => {
     });
   });
 
+  it("detects the ikigai title format over a giant internal url id", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://viralikigai.milkchoco.online/capitulo/1187745088806715393/",
+        documentTitle:
+          "Capítulo 224 - Segunda Vida Para Ser Un Ranker | Ikigai Mangas",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Segunda Vida Para Ser Un Ranker",
+      chapterLabel: "Cap. 224",
+      confidence: 0.75,
+    });
+  });
+
+  it("never uses an implausibly long url number as the chapter", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://viralikigai.milkchoco.online/capitulo/1187745088806715393/",
+        ogTitle: "Segunda Vida Para Ser Un Ranker | Ikigai Mangas",
+      }),
+    );
+
+    expect(result).toEqual({ detected: false, reason: "no-chapter-in-title" });
+  });
+
   it("does not use reader-url numbers as the chapter when no title names one", () => {
     const result = detectFromHeuristics(
       signals({

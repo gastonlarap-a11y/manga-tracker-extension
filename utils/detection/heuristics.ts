@@ -43,6 +43,10 @@ const CHAPTER_URL_PATTERNS: RegExp[] = [
 const READER_PATH_PATTERN =
   /^\/(?:leer|lector|read|reader|ver|viewer)(?:_\w+)?\//i;
 
+// No real chapter needs more integer digits than this; longer URL numbers are
+// internal ids (olympus: /capitulo/130729/, ikigai: /capitulo/118774…393/).
+const MAX_URL_CHAPTER_DIGITS = 4;
+
 // Longest alternatives first so "capítulo" is not half-matched as "cap".
 const CHAPTER_WORDS = "(?:cap[íi]tulo|chapter|cap\\.?|ch\\.?)";
 
@@ -61,10 +65,13 @@ export function detectFromHeuristics(signals: PageSignals): Detection {
 
   // The URL gates "is this a chapter page", but its number can be an internal
   // id (e.g. olympus: /capitulo/<id>/ with the real chapter in the title), so
-  // the human-facing title wins when it names a chapter. On reader paths the
-  // URL never provides a chapter, so the title is the only accepted evidence.
+  // the human-facing title wins when it names a chapter. Implausibly long URL
+  // numbers are ids, never chapters — like reader paths, they need the title
+  // to vouch for the chapter.
   const titleChapter = extractChapterFromTitle(title.value);
-  const chapterNumber = titleChapter ?? urlChapter;
+  const trustedUrlChapter =
+    urlChapter !== null && isPlausibleChapter(urlChapter) ? urlChapter : null;
+  const chapterNumber = titleChapter ?? trustedUrlChapter;
   if (chapterNumber === null) {
     return { detected: false, reason: "no-chapter-in-title" };
   }
@@ -104,6 +111,11 @@ export function extractChapterFromUrl(url: string): string | null {
 export function isReaderPath(url: string): boolean {
   const pathname = pathnameOf(url);
   return pathname !== null && READER_PATH_PATTERN.test(pathname);
+}
+
+function isPlausibleChapter(chapter: string): boolean {
+  const integerPart = chapter.split(".")[0] ?? chapter;
+  return integerPart.length <= MAX_URL_CHAPTER_DIGITS;
 }
 
 function pathnameOf(url: string): string | null {
