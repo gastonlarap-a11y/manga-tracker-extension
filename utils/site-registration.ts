@@ -75,6 +75,41 @@ export async function unregisterSite(
   }
 }
 
+// Reloading the extension also invalidates the content scripts of tabs that
+// are ALREADY open, and registered scripts only inject on new page loads —
+// so a pre-reload tab navigating via SPA would go untracked forever. The
+// background calls this after the registration sync to hook those tabs back.
+export async function injectDetectorIntoOpenTabs(): Promise<ApiResult<null>> {
+  try {
+    const granted = await browser.permissions.getAll();
+    const origins = (granted.origins ?? []).filter(
+      (origin) => origin !== BACKEND_ORIGIN_PATTERN,
+    );
+    for (const originPattern of origins) {
+      const tabs = await browser.tabs.query({ url: originPattern });
+      for (const tab of tabs) {
+        if (tab.id === undefined) {
+          continue;
+        }
+        try {
+          await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: [DETECTOR_SCRIPT],
+          });
+        } catch {
+          // Discarded or protected tab; the rest must still get the detector.
+        }
+      }
+    }
+    return { ok: true, data: null };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: cause instanceof Error ? cause.message : "Tab reinjection failed",
+    };
+  }
+}
+
 // Chrome wipes runtime-registered content scripts when the extension is
 // reloaded or updated, while the granted host permissions survive. The
 // background calls this on installed/startup to bring registrations back in

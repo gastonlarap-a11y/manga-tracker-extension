@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing";
 import {
+  injectDetectorIntoOpenTabs,
   registerSite,
   syncRegisteredSites,
   unregisterSite,
@@ -11,6 +12,7 @@ const registerMock = vi.fn();
 const unregisterMock = vi.fn();
 const executeScriptMock = vi.fn();
 const getAllPermissionsMock = vi.fn();
+const tabsQueryMock = vi.fn();
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -19,6 +21,7 @@ beforeEach(() => {
   unregisterMock.mockReset();
   executeScriptMock.mockReset();
   getAllPermissionsMock.mockReset();
+  tabsQueryMock.mockReset();
   // Cast justified: fake-browser does not implement the scripting/permissions
   // namespaces, so the test provides the minimal stubs the logic calls.
   fakeBrowser.scripting = {
@@ -30,6 +33,9 @@ beforeEach(() => {
   fakeBrowser.permissions = {
     getAll: getAllPermissionsMock,
   } as unknown as typeof fakeBrowser.permissions;
+  // Cast justified: same as above for the url-filtered tabs query.
+  fakeBrowser.tabs.query =
+    tabsQueryMock as unknown as typeof fakeBrowser.tabs.query;
 });
 
 describe("registerSite", () => {
@@ -153,6 +159,51 @@ describe("syncRegisteredSites", () => {
     const result = await syncRegisteredSites();
 
     expect(result).toEqual({ ok: false, error: "permissions broken" });
+  });
+});
+
+describe("injectDetectorIntoOpenTabs", () => {
+  it("injects the detector into every open tab of granted origins", async () => {
+    getAllPermissionsMock.mockResolvedValue({
+      origins: ["http://localhost:5150/*", "https://olympusxyz.com/*"],
+      permissions: [],
+    });
+    tabsQueryMock.mockResolvedValue([{ id: 3 }, { id: 9 }]);
+    executeScriptMock.mockResolvedValue([]);
+
+    const result = await injectDetectorIntoOpenTabs();
+
+    expect(tabsQueryMock).toHaveBeenCalledWith({
+      url: "https://olympusxyz.com/*",
+    });
+    expect(tabsQueryMock).not.toHaveBeenCalledWith({
+      url: "http://localhost:5150/*",
+    });
+    expect(executeScriptMock).toHaveBeenCalledWith({
+      target: { tabId: 3 },
+      files: ["/content-scripts/detector.js"],
+    });
+    expect(executeScriptMock).toHaveBeenCalledWith({
+      target: { tabId: 9 },
+      files: ["/content-scripts/detector.js"],
+    });
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("keeps going when one tab rejects the injection", async () => {
+    getAllPermissionsMock.mockResolvedValue({
+      origins: ["https://olympusxyz.com/*"],
+      permissions: [],
+    });
+    tabsQueryMock.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    executeScriptMock
+      .mockRejectedValueOnce(new Error("The tab was discarded"))
+      .mockResolvedValueOnce([]);
+
+    const result = await injectDetectorIntoOpenTabs();
+
+    expect(executeScriptMock).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ ok: true, data: null });
   });
 });
 

@@ -2,7 +2,10 @@ import { browser, defineBackground } from "#imports";
 import { clearTab } from "@/utils/detection-log";
 import { handleMessage } from "@/utils/message-handler";
 import { isRuntimeMessage } from "@/utils/messages";
-import { syncRegisteredSites } from "@/utils/site-registration";
+import {
+  injectDetectorIntoOpenTabs,
+  syncRegisteredSites,
+} from "@/utils/site-registration";
 
 export default defineBackground(() => {
   // Extension reloads/updates wipe runtime-registered content scripts while
@@ -26,5 +29,13 @@ async function resyncDetectors(): Promise<void> {
   const result = await syncRegisteredSites();
   if (!result.ok) {
     console.error(`[manga-tracker] detector re-sync failed: ${result.error}`);
+  }
+  // Tabs that were already open lost their content scripts on reload and
+  // only re-inject on full page loads — hook them back explicitly.
+  const reinjected = await injectDetectorIntoOpenTabs();
+  if (!reinjected.ok) {
+    console.error(
+      `[manga-tracker] tab reinjection failed: ${reinjected.error}`,
+    );
   }
 }
