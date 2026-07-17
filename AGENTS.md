@@ -6,14 +6,19 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 
 ## Layout
 - `entrypoints/` — WXT file-based entrypoints: `background.ts` (service worker),
-  `content.ts` (page-info probe) and `detector.content.ts` (auto-detection; both
-  `registration: "runtime"`, injected on demand), `popup/` (React)
+  `content.ts` (page-info probe), `detector.content.ts` (auto-detection) and
+  `calibration.content/` (two-click calibration overlay in a Shadow DOM via
+  `createShadowRootUi`); all content scripts are `registration: "runtime"`, injected on
+  demand. `popup/` (React)
 - `utils/` — shared logic (auto-importable dir, but imports are explicit via `#imports`/`@/`)
   - `utils/api/` — backend contract types (hand-duplicated) + fetch client
   - `utils/detection/` — pure detection pipeline: page signals → adapter or
     heuristics → confidence (threshold 0.7 gates auto-send)
   - `utils/message-handler.ts` — background business logic (entrypoint stays thin)
   - `utils/site-registration.ts` — runtime registration of the detector per granted origin
+  - `utils/detection-log.ts` — last detection per tab (in-memory), feeds the popup diagnosis
+  - `utils/calibration.ts` — selector generation for the overlay (@medv/finder,
+    round-trip validated)
 - `wxt.config.ts` — manifest definition (permissions, fixed `key` for the stable id)
 - `.wxt/` — generated types (`wxt prepare`); never edit, gitignored
 - `.output/` — build output; `chrome-mv3-dev/` (dev) and `chrome-mv3/` (build), gitignored

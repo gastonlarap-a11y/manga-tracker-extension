@@ -550,10 +550,97 @@ real ("funciono perfecto").
 
 ---
 
-## 11. Cómo se prueba y se opera
+## 11. Paso 11 — Diagnóstico visible, guard de ids gigantes y calibración por 2 clicks (commits `ba17cba` y `da5df2a`)
+
+**Síntomas reales que dispararon esta ronda:** (1) capítulos duplicados en la biblioteca
+— causa doble: el LaunchAgent del API nunca se había reiniciado (el fix anterior jamás
+corrió en producción) y la regla de dedup era por ventana de tiempo cuando el producto
+pedía "un capítulo ya registrado no se guarda nunca más" (eso se arregló en el API:
+ahora `POST /api/events` devuelve el evento existente si el capítulo ya está en la
+historia del manga); (2) un sitio nuevo (viralikigai/Ikigai) no guardó nada y la
+extensión **falló en silencio** — imposible saber por qué sin debuggear.
+
+### 11a. Guard de ids gigantes (`utils/detection/heuristics.ts`)
+
+Al investigar Ikigai: su URL es `/capitulo/1187745088806715393/` — pasa el gate de
+capítulo con un número que claramente es un id interno. Si el título no nombrara el
+capítulo, se habría guardado "Cap. 1187745088806715393" (la clase de bug del 130729).
+Regla genérica nueva: `MAX_URL_CHAPTER_DIGITS = 4` + `isPlausibleChapter(chapter)`
+(interna): un número de URL con más de 4 dígitos enteros sigue abriendo el gate ("esto
+es una página de capítulo") pero **jamás** se usa como número — sin confirmación del
+título, `no-chapter-in-title` y silencio. Ningún manga real supera los 4 dígitos.
+
+### 11b. Diagnóstico por pestaña (la respuesta a "no quiero mandarte URLs")
+
+- `utils/detection-log.ts` — `Map<tabId, {url, detection}>` en memoria del service
+  worker: `recordDetection`, `getDetection`, `clearTab` (el background la limpia en
+  `tabs.onRemoved`). En memoria a propósito: si Chrome mata el worker, el popup dice
+  "sin detección aún", que es exacto.
+- Mensajes nuevos en `utils/messages.ts`: `report-detection {url, detection}` (el
+  detector lo envía tras CADA corrida, detecte o no; el background saca el tabId de
+  `sender.tab.id` — `handleMessage` ganó el parámetro `senderTabId`) y
+  `get-detection {tabId}` (el popup pregunta). Guards nuevos: `isDetection`,
+  `isCreateAdapterBody`, más `ContentCommand`/`isContentCommand` para el canal inverso
+  background→content (`browser.tabs.sendMessage`).
+- Popup: componente `DetectionStatus` + `describeDetection(entry)` — traduce el
+  resultado a humano: "Detectado: X — Cap. N (75 %)", "La URL no parece de un capítulo",
+  "El título no nombra el capítulo → usá Calibrar detección", etc. El detector además
+  hace `console.debug("[manga-tracker] detection", …)` en la consola del sitio.
+
+### 11c. Fase 7: overlay de calibración (2 clicks → adapter para siempre)
+
+La garantía de universalidad: cuando la heurística no puede con un sitio, el usuario lo
+calibra UNA vez y queda un `SiteAdapter` guardado (los adapters ya tenían prioridad en
+`detectReading` con confianza 1 desde el paso 6 — esta pieza es quien los crea).
+
+Flujo completo: popup → botón **"Calibrar detección"** → `start-calibration {tabId}` →
+el background inyecta `/content-scripts/calibration.js` → overlay sobre la página →
+click en el título → click en el capítulo → confirmar → `save-adapter` → el background
+hace `POST /api/adapters` (upsert por dominio) y manda `{kind:"detect-now"}` a la
+pestaña → el detector re-corre con el adapter fresco y el capítulo se registra al
+instante.
+
+Piezas, función por función:
+
+- `utils/calibration.ts` — `pickElement(element, doc)`: toma el elemento clickeado,
+  exige texto no vacío, genera el selector con `finder` de **@medv/finder** (dep nueva;
+  genera el selector CSS único más corto) y lo valida **round-trip**: el selector debe
+  re-encontrar exactamente ese elemento (`doc.querySelector(selector) === element`);
+  si no, `null` y se sigue eligiendo. Sin esa validación, un selector ambiguo trackearía
+  silenciosamente el texto equivocado en visitas futuras.
+- `entrypoints/calibration.content/index.tsx` — entrypoint `registration: "runtime"` +
+  `cssInjectionMode: "ui"`; monta la UI con `createShadowRootUi(ctx, {name:
+  "manga-tracker-calibration", position: "modal", zIndex: 2147483647, onMount,
+  onRemove})` de WXT: **Shadow DOM** = los estilos del sitio y los nuestros no se
+  contaminan. Guard `window.__mangaTrackerCalibrationActive` (se limpia al cerrar, a
+  diferencia del detector: la calibración puede relanzarse).
+- `entrypoints/calibration.content/CalibrationApp.tsx` — máquina de estados
+  `pick-title → pick-chapter → confirm → saving → saved | error` (unión discriminada).
+  Mientras se elige: listeners a nivel `document` en **fase capture** — `mouseover`
+  resalta el elemento bajo el mouse (outline inline, restaurando el valor previo) y
+  `click` hace `preventDefault/stopPropagation` (la página no navega) y llama
+  `pickElement`. Los eventos del propio overlay se filtran porque el Shadow DOM los
+  retargetea al host (`target.closest("manga-tracker-calibration")`). Escape cancela.
+- `entrypoints/calibration.content/style.css` — el truco de puntería: el backdrop cubre
+  todo el viewport con `pointer-events: none` (los clicks ATRAVIESAN hacia la página,
+  donde los captura el listener) y solo la barra de instrucciones tiene
+  `pointer-events: auto`.
+- Cliente: `createAdapter(body)` en `utils/api/client.ts` + `CreateAdapterBody` en
+  types (contrato copiado de `adapters.routes.ts` del API). Handler: ramas
+  `start-calibration` (inyecta el script) y `save-adapter` (guarda y dispara
+  `detect-now`). El detector ganó un listener mínimo: ante `detect-now` resetea
+  `lastReportedUrl` y re-agenda.
+
+Lección recurrente confirmada una vez más: al crear el entrypoint nuevo, el path
+`"/content-scripts/calibration.js"` dio TS2820 hasta correr `bunx wxt prepare`
+(regenera el tipo `ScriptPublicPath`).
+
+---
+
+## 12. Cómo se prueba y se opera
 
 - **Gates** (siempre los tres antes de dar algo por terminado): `bun run lint`,
-  `bun run typecheck`, `bun run test`. Hoy: 94 tests en 8 archivos.
+  `bun run typecheck`, `bun run test`. Hoy: 103 tests en 9 archivos.
 - **Estructura de tests:** colocados junto a lo que prueban. Los puros (heurística) no
   necesitan entorno; los de DOM usan happy-dom; los de `browser.*` usan `fakeBrowser` de
   `wxt/testing` (con `fakeBrowser.reset()` en `beforeEach`) y stubs para los namespaces
@@ -568,7 +655,7 @@ real ("funciono perfecto").
 
 ---
 
-## 12. Recetario: cómo repetir esto en otro proyecto
+## 13. Recetario: cómo repetir esto en otro proyecto
 
 1. **Elegí el framework re-validando el ecosistema HOY** (CLI, artefactos generados,
    HMR, soporte de tu runtime), no con lo que decía un plan viejo. Commiteá el template
