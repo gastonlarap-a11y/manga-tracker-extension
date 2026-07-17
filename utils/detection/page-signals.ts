@@ -23,18 +23,11 @@ export function collectPageSignals(doc: Document, url: string): PageSignals {
 // user set a manual cover in the dashboard.
 const GENERIC_IMAGE_PATTERN = /logo|banner|favicon|icon|default|placeholder/i;
 
-// Cover candidate for the library (og:image, twitter:image as fallback),
-// resolved to an absolute http(s) URL. Independent from PageSignals: the
-// detection pipeline does not need it, only the reported event does.
-export function coverFromDocument(doc: Document): string | null {
-  const raw =
-    metaContent(doc, 'meta[property="og:image"]') ??
-    metaContent(doc, 'meta[name="twitter:image"]');
-  if (!raw) {
-    return null;
-  }
+// Resolves an image reference to an absolute http(s) URL, rejecting site
+// branding. Shared by the cover hunt (utils/detection/cover-hunt.ts).
+export function resolveImageUrl(src: string, baseUrl: string): string | null {
   try {
-    const url = new URL(raw, doc.baseURI);
+    const url = new URL(src, baseUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return null;
     }
@@ -45,6 +38,22 @@ export function coverFromDocument(doc: Document): string | null {
   } catch {
     return null;
   }
+}
+
+// Cover candidate from meta tags (og:image, twitter:image as fallback).
+// baseUrl matters for documents built with DOMParser, whose baseURI points
+// at the extension, not at the fetched page.
+export function coverFromDocument(
+  doc: Document,
+  baseUrl: string = doc.baseURI,
+): string | null {
+  const raw =
+    metaContent(doc, 'meta[property="og:image"]') ??
+    metaContent(doc, 'meta[name="twitter:image"]');
+  if (!raw) {
+    return null;
+  }
+  return resolveImageUrl(raw, baseUrl);
 }
 
 function metaContent(doc: Document, selector: string): string | null {

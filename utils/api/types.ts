@@ -2,10 +2,15 @@
 // src/modules/events/events.routes.ts, src/lib/http.ts). Project constraint:
 // when a contract changes in the API, this file changes in the same commit.
 
+export type MangaStatus = "reading" | "completed" | "dropped";
+
 export interface MangaDto {
   id: string;
   canonicalName: string;
   normalizedSlug: string;
+  coverUrl: string | null;
+  status: MangaStatus;
+  tags: string[];
   createdAt: string;
 }
 

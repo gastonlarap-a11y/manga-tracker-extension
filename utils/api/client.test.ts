@@ -22,6 +22,9 @@ const createEventResponse: CreateEventResponse = {
     id: "manga-1",
     canonicalName: "One Piece",
     normalizedSlug: "one-piece",
+    coverUrl: null,
+    status: "reading",
+    tags: [],
     createdAt: "2026-07-16T12:00:00.000Z",
   },
   event: {

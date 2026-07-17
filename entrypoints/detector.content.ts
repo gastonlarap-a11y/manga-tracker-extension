@@ -1,7 +1,7 @@
 import { browser, defineContentScript } from "#imports";
+import { huntCover } from "@/utils/detection/cover-hunt";
 import { detectReading } from "@/utils/detection/detect";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
-import { coverFromDocument } from "@/utils/detection/page-signals";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
 
 // SPAs swap content without reloading; wait for the page to settle before
@@ -50,19 +50,38 @@ export default defineContentScript({
         return;
       }
 
-      const coverUrl = coverFromDocument(document);
       const recorded = await sendRuntimeMessage({
         kind: "record-event",
         payload: {
           mangaName: detection.mangaName,
           chapterLabel: detection.chapterLabel,
           sourceUrl: url,
-          ...(coverUrl ? { coverUrl } : {}),
         },
       });
       if (recorded.ok) {
         lastReportedUrl = url;
+        if (recorded.data.manga.coverUrl === null) {
+          void attachCover(detection.mangaName, detection.chapterLabel, url);
+        }
       }
+    }
+
+    // Best-effort, one-off per manga: hunts the real cover (page meta →
+    // series page → in-page thumbnail) and re-sends the same event with it.
+    // The backend dedupes the event but persists the cover (first wins).
+    async function attachCover(
+      mangaName: string,
+      chapterLabel: string,
+      sourceUrl: string,
+    ): Promise<void> {
+      const coverUrl = await huntCover(document, mangaName, sourceUrl);
+      if (!coverUrl) {
+        return;
+      }
+      void sendRuntimeMessage({
+        kind: "record-event",
+        payload: { mangaName, chapterLabel, sourceUrl, coverUrl },
+      });
     }
 
     function scheduleDetection(): void {
