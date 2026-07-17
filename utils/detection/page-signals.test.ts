@@ -67,4 +67,11 @@ describe("coverFromDocument", () => {
 
     expect(coverFromDocument(document)).toBeNull();
   });
+
+  it("rejects site branding images (olympus logo case)", () => {
+    document.head.innerHTML =
+      '<meta property="og:image" content="https://olympusxyz.com/olympus-logo-180.webp" />';
+
+    expect(coverFromDocument(document)).toBeNull();
+  });
 });

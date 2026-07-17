@@ -18,6 +18,11 @@ export function collectPageSignals(doc: Document, url: string): PageSignals {
   };
 }
 
+// Sites that put their branding in og:image (olympus: /olympus-logo-180.webp)
+// would flood the library with logos — better to send nothing and let the
+// user set a manual cover in the dashboard.
+const GENERIC_IMAGE_PATTERN = /logo|banner|favicon|icon|default|placeholder/i;
+
 // Cover candidate for the library (og:image, twitter:image as fallback),
 // resolved to an absolute http(s) URL. Independent from PageSignals: the
 // detection pipeline does not need it, only the reported event does.
@@ -30,9 +35,13 @@ export function coverFromDocument(doc: Document): string | null {
   }
   try {
     const url = new URL(raw, doc.baseURI);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.href
-      : null;
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    if (GENERIC_IMAGE_PATTERN.test(url.pathname)) {
+      return null;
+    }
+    return url.href;
   } catch {
     return null;
   }
