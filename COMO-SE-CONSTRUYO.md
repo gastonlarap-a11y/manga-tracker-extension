@@ -1,0 +1,594 @@
+# Cómo se construyó manga-tracker-extension
+
+Crónica completa de la construcción de la extensión, paso a paso y en el **orden real** en
+que ocurrió (la columna vertebral es el historial de git: `git log --oneline --reverse`).
+Para cada paso: qué se hizo, con qué comando, por qué en ese momento y no en otro, qué
+archivos y funciones aparecieron, y qué hace cada función. Al final hay un recetario con
+los pasos generalizables para repetir este proceso en otro proyecto.
+
+> **Nota previa sobre "clases":** este código no tiene clases propias. Es el estilo
+> idiomático de TypeScript moderno con WXT: módulos que exportan **funciones puras**,
+> **tipos** y **constantes**. Las únicas "clases" que se usan vienen de las plataformas
+> (`URL`, `Response`, `MutationObserver`, `RegExp`) o de React. El recorrido va
+> **archivo por archivo, función por función** — el equivalente exacto de "clase por
+> clase, método por método" en este diseño.
+
+---
+
+## 0. Visión general: qué es esta extensión y cómo encajan las piezas
+
+Extensión de navegador **Manifest V3** (el formato actual de Chrome/Brave). Su único
+trabajo: detectar qué manga y qué capítulo estás leyendo en un sitio que vos elegiste
+trackear, y avisarle a `manga-tracker-api` (el backend local en `http://localhost:5150`).
+
+Una extensión MV3 tiene tres tipos de piezas, y acá están las tres:
+
+- **Service worker** (`entrypoints/background.ts`): un proceso sin UI que vive en el
+  navegador. Acá es **el único que habla HTTP con el backend**. Todo lo demás le manda
+  mensajes.
+- **Content scripts** (`entrypoints/content.ts` y `entrypoints/detector.content.ts`):
+  código que se inyecta DENTRO de la página del manga y puede leer su DOM. No hablan HTTP
+  directo: le piden todo al service worker por mensajes.
+- **Popup** (`entrypoints/popup/`): la ventanita React que se abre al clickear el ícono.
+  Muestra estado y tiene los botones de "Trackear este sitio".
+
+El flujo completo de una lectura automática:
+
+```mermaid
+sequenceDiagram
+    participant P as Página del manga
+    participant D as detector.content.ts
+    participant B as background.ts (service worker)
+    participant A as manga-tracker-api
+
+    P->>D: la página termina de cargar (o cambia de URL / de título)
+    D->>D: espera 2 s (debounce, la SPA se asienta)
+    D->>B: mensaje {kind:"get-adapter", domain}
+    B->>A: GET /api/adapters/:domain
+    A-->>B: adapter o 404 (404 = "no hay", no es error)
+    B-->>D: ApiResult<SiteAdapterDto | null>
+    D->>D: detectReading(document, url, adapter)
+    alt confianza >= 0.7
+        D->>B: mensaje {kind:"record-event", payload}
+        B->>A: POST /api/events {mangaName, chapterLabel, sourceUrl}
+        A-->>B: 201 {manga, event}
+        B-->>D: ApiResult ok → D recuerda la URL reportada
+    else confianza < 0.7 o página sin capítulo
+        D->>D: no envía nada (silencio, cero falsos positivos)
+    end
+```
+
+El orden de construcción fue de afuera hacia adentro: primero la **infraestructura**
+(scaffold, tooling, identidad), después el **contrato** con el API, después el **canal de
+mensajes**, y recién entonces las **features** (detección, tracking). Cada fix posterior
+nació de un síntoma real usando la extensión de verdad.
+
+---
+
+## 1. Paso 1 — Elegir framework y scaffold (commit `d69e857`)
+
+### La decisión previa (antes de escribir un solo comando)
+
+El plan original (PLAN.md del API) pineaba CRXJS. Antes de obedecerlo a ciegas se
+re-evaluó el ecosistema **a la fecha real de construcción** (jul 2026), comparando tres
+candidatos con estos criterios: ¿tiene CLI para scaffoldear?, ¿genera el manifest o hay
+que escribirlo a mano?, ¿tiene HMR?, ¿soporta Bun?
+
+- **WXT**: CLI con soporte Bun nativo, manifest generado desde `wxt.config.ts`,
+  entrypoints por archivo (convención sobre configuración), HMR. ✅ elegido.
+- **CRXJS**: exige scaffolding vía npm y manifest manual.
+- **Plasmo**: en modo mantenimiento (señal de riesgo a futuro).
+
+Lección: un plan escrito hace meses pinea versiones/herramientas que hay que re-validar
+cuando llega el momento de usarlas. El cambio se propuso, se aprobó, y se documentó en el
+PLAN.md del API (que es el roadmap compartido de los tres repos).
+
+### El comando y qué generó
+
+```bash
+cd ~/Documents/Git
+bunx wxt@latest init manga-tracker-extension -t react --pm bun
+cd manga-tracker-extension && bun install
+```
+
+El template `react` de WXT genera:
+
+- `wxt.config.ts` — la configuración central; el manifest NO se escribe a mano, se
+  declara acá y WXT lo genera en `.output/<target>/manifest.json` en cada build.
+- `entrypoints/` — cada archivo de esta carpeta se convierte en una pieza de la
+  extensión según su nombre: `background.ts` → service worker, `*.content.ts` → content
+  script, `popup/` → popup. No hay routing manual.
+- `.wxt/` — tipos TypeScript **generados** por `wxt prepare` (corre en `postinstall`).
+  Nunca se edita; está gitignorado. Importante: si agregás un entrypoint nuevo, hay que
+  correr `bunx wxt prepare` para regenerar tipos como `ScriptPublicPath` (nos pasó: un
+  path de content script nuevo daba error TS2820 hasta regenerar).
+- `public/icon/*.png` — íconos en los 5 tamaños que pide Chrome.
+
+El primer commit es SOLO el template, sin tocar nada: así cualquier `git diff` posterior
+muestra exactamente qué es nuestro y qué era del template.
+
+---
+
+## 2. Paso 2 — Tooling espejo del API (commit `28548c6`)
+
+**Por qué esto va antes que cualquier lógica:** los tres repos del sistema comparten los
+mismos gates de calidad (`lint` + `typecheck` + `test`). Si los instalás al final, migrás
+código ya escrito a reglas nuevas; si los instalás primero, cada línea nace validada.
+
+Qué se configuró, archivo por archivo:
+
+- **`biome.json`** — linter + formatter (Biome reemplaza a ESLint+Prettier con una sola
+  herramienta). Config: `vcs.useIgnoreFile: true` (respeta `.gitignore`, así no lintea
+  `.output/`), preset `recommended`, `organizeImports` automático.
+- **`package.json` → scripts**:
+  - `dev` / `build` / `zip`: comandos de WXT (`wxt`, `wxt build`, `wxt zip`).
+  - `test`: `vitest run` — **no** `bun test`; el runner es vitest porque WXT provee un
+    plugin de testing propio (ver abajo).
+  - `lint`: `biome check .` · `format`: `biome check --write .`
+  - `typecheck`: `tsc --noEmit` con `typescript@7` (tsgo, el compilador nativo — mismo
+    que en el API).
+  - `postinstall`: `wxt prepare` — regenera `.wxt/` tras cada install.
+- **`vitest.config.ts`** — 6 líneas: registra el plugin `WxtVitest()` de `wxt/testing`.
+  Ese plugin hace dos cosas clave: resuelve los alias de WXT (`#imports`, `@/`) dentro de
+  los tests, y provee `fakeBrowser` — una implementación en memoria de las APIs
+  `browser.*` para testear sin navegador real.
+- **`tsconfig.json`** — extiende el generado por WXT en `.wxt/tsconfig.json`.
+
+---
+
+## 3. Paso 3 — Identidad y permisos: el manifest (commit `80787ba`)
+
+**Por qué la identidad fue "lo primero de verdad":** el backend tiene una allowlist de
+CORS. Las extensiones tienen un origin `chrome-extension://<id>`, y ese id se **deriva de
+la clave pública** del manifest. Sin clave fija, cada máquina/carga genera un id
+distinto y habría que tocar el CORS del backend a cada rato. Con clave fija, el id es
+estable para siempre y se agrega al backend **una sola vez** (se hizo en el mismo día:
+commit `3edfacd` del API).
+
+Cómo se generó la identidad:
+
+```bash
+# 1. Clave privada RSA (queda FUERA de git — está en .gitignore como *.pem)
+openssl genrsa -out extension-key.pem 2048
+# 2. Clave pública en DER + base64 → va en el campo "key" del manifest
+openssl rsa -in extension-key.pem -pubout -outform DER | base64
+# 3. El id resultante: sha256 de la pubkey DER, primeros 16 bytes, mapeados a letras a-p
+#    → cfjiinlnepkmlaafdclmlpjbmpofplop (verificado contra chrome://extensions)
+```
+
+`wxt.config.ts` quedó así, campo por campo:
+
+- `modules: ["@wxt-dev/module-react"]` — habilita React en el popup.
+- `manifest.name: "Manga Tracker"` — nombre visible.
+- `manifest.key` — la clave pública de arriba (con comentario explicando el porqué).
+- `manifest.permissions: ["storage", "activeTab", "scripting"]` — lo MÍNIMO:
+  - `activeTab`: acceso temporal a la pestaña activa cuando el usuario interactúa.
+  - `scripting`: poder inyectar/registrar content scripts por código.
+  - `storage`: almacenamiento de la extensión.
+- `manifest.host_permissions: ["http://localhost:5150/*"]` — el ÚNICO host fijo es el
+  backend local. Sin esto, el `fetch` del service worker al backend fallaría.
+- `manifest.optional_host_permissions: ["https://*/*", "http://*/*"]` — los sitios de
+  manga NO se piden al instalar: se piden **en runtime, sitio por sitio**, cuando el
+  usuario aprieta "Trackear este sitio". Filosofía opt-in: la extensión no puede leer
+  ninguna página que no hayas autorizado explícitamente.
+
+Verificación manual de este paso (la hizo el usuario): cargar `.output/chrome-mv3-dev/`
+como "extensión sin empaquetar" en Brave y Chrome y confirmar que el id coincidía en
+ambos.
+
+---
+
+## 4. Paso 4 — La primera pieza de código: el contrato con el API
+
+**Por qué se empezó por acá** (la respuesta a "¿con qué clase comenzaste?"): todo lo que
+hace la extensión termina en una llamada al backend. Si el contrato (tipos + cliente
+HTTP) existe primero, cada capa siguiente se escribe contra tipos reales y el compilador
+te avisa de inconsistencias al instante. Es la misma razón por la que en el API se
+escribió primero el schema de Prisma.
+
+### `utils/api/types.ts` — los DTOs
+
+Interfaces **duplicadas a mano** desde los schemas Zod del API (`src/lib/schemas.ts` y
+las rutas): `MangaDto`, `ReadingEventDto`, `CreateEventBody` (lo único que la extensión
+envía: `{mangaName, chapterLabel, sourceUrl}` — el servidor deriva slug, dominio y número
+de capítulo; **nunca se confía en el cliente para eso**), `CreateEventResponse`,
+`SiteAdapterDto`, `HealthResponse`, `ErrorResponse`.
+
+Regla de contrato (constraint del proyecto, sin monorepo ni paquete compartido): si un
+contrato cambia en el API, este archivo cambia **en el mismo commit** conceptual del
+lado de la extensión.
+
+### `utils/api/client.ts` — el cliente HTTP
+
+- `API_BASE_URL = "http://localhost:5150"` — constante única; espejo de la regla del API
+  de que solo `config.ts` conoce el entorno.
+- `type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number }`
+  — **la decisión de diseño más importante del archivo**: las funciones NUNCA lanzan
+  excepciones; devuelven una unión discriminada. Quien llama está obligado por el
+  compilador a chequear `result.ok` antes de tocar `result.data`. Los errores no pueden
+  "olvidarse".
+- `request<T>(path, init?)` (interna) — hace el `fetch` contra `API_BASE_URL + path`,
+  con tres niveles de manejo: (1) el `fetch` mismo falla (red) → `{ok:false, error}`;
+  (2) el body no es JSON → se ignora y decide el status; (3) status no-2xx →
+  `{ok:false, error, status}` extrayendo el mensaje del body si tiene forma
+  `{error: string}`. El cast `body as T` lleva un comentario justificándolo: el schema
+  OpenAPI del API es el contrato y esta es la frontera de confianza.
+- `extractErrorMessage(body, status)` (interna) — narrowing de `unknown`: si el body es
+  un objeto con `error: string` lo usa; si no, `"HTTP <status>"`.
+- `pingHealth()` — `GET /health`; la usa el popup para el semáforo de conexión.
+- `createReadingEvent(body)` — `POST /api/events`; el único write.
+- `getAdapter(domain)` — `GET /api/adapters/:domain` con un detalle de diseño: si el API
+  responde 404, lo **convierte en `{ok:true, data:null}`** porque "este sitio no tiene
+  adapter calibrado" es un resultado normal del dominio, no un error.
+
+Test colocado (`client.test.ts`): mockea `fetch` global y verifica URLs llamadas, mapeo
+de errores con status, fallos de red, y la conversión 404→null.
+
+---
+
+## 5. Paso 5 — Mensajería tipada y handshake end-to-end (commit `d253f6a`)
+
+En MV3, popup y content scripts hablan con el service worker por
+`browser.runtime.sendMessage` — un canal **sin tipos** (viaja `any`). Este paso construyó
+un protocolo tipado encima, y lo probó end-to-end con un botón de evento test.
+
+### `utils/messages.ts` — el protocolo
+
+- `type RuntimeMessage` — unión discriminada por `kind` con los seis mensajes del
+  sistema: `ping`, `send-test-event {tabId}`, `get-adapter {domain}`,
+  `record-event {payload}`, `register-site {originPattern, tabId}`,
+  `unregister-site {originPattern}`.
+- `interface MessageResponses` — mapa `kind → tipo de respuesta` (p. ej. `"ping"` →
+  `ApiResult<HealthResponse>`). Es lo que permite que la respuesta esté tipada según el
+  mensaje enviado.
+- `isRuntimeMessage(value)` — **type guard** en runtime: como cualquier página/extensión
+  puede mandar mensajes arbitrarios, el service worker valida la forma antes de actuar.
+  Un `switch` sobre `value.kind` verifica los campos de cada variante.
+- `isCreateEventBody(value)` (interna) — guard del payload anidado de `record-event`.
+- `sendRuntimeMessage<M>(message)` — wrapper de `browser.runtime.sendMessage` que
+  devuelve `Promise<MessageResponses[M["kind"]]>`: el que envía `{kind:"ping"}` recibe,
+  tipado, un `ApiResult<HealthResponse>`. El único `as` del archivo está justificado en
+  comentario (el canal nativo es untyped; este módulo ES el contrato en ambos extremos).
+
+### `utils/message-handler.ts` — la lógica del service worker
+
+- `handleMessage(message)` — un `switch` exhaustivo sobre `message.kind` que rutea cada
+  mensaje a su función (`pingHealth`, `getAdapter`, `createReadingEvent`,
+  `registerSite`, `unregisterSite`, `sendTestEvent`). Como `RuntimeMessage` es una unión
+  discriminada, si mañana se agrega un `kind` nuevo y no se maneja, **el compilador
+  falla** (el switch deja de ser exhaustivo).
+- `sendTestEvent(tabId)` (interna) — inyecta el content script de página en la pestaña,
+  toma `{title, url}` reales y los envía como evento con `buildTestEventPayload`.
+- `collectPageInfo(tabId)` (interna) — `browser.scripting.executeScript({target, files:
+  ["/content-scripts/content.js"]})`; el resultado de `main()` del content script viaja
+  como `injection.result`, que se valida con `isPageInfo` (es `unknown` hasta probar lo
+  contrario).
+
+**Lección importante (por qué este archivo existe separado del entrypoint):** el plan
+era poner esta lógica directo en `background.ts`. Pero al testear con `fakeBrowser`
+descubrimos que el fake **no soporta el protocolo nativo de Chrome** (`sendResponse` +
+`return true`); solo el estilo promesa. En Chrome real el protocolo nativo es el
+correcto. Solución: el entrypoint conserva el protocolo nativo y la lógica vive en
+`handleMessage`, que se testea directo sin pasar por el canal. Es el mismo split
+rutas/servicio del API: **entrypoints finos, lógica testeable en `utils/`**.
+
+### `entrypoints/background.ts` — el wiring
+
+`defineBackground` registra el listener de mensajes: valida con `isRuntimeMessage`
+(mensaje desconocido → `return false`, no responde), llama `handleMessage(message)
+.then(sendResponse)` y **`return true`** — ese `true` le dice a Chrome "la respuesta
+llega async, mantené el canal abierto". Sin él, el canal se cierra antes de que el
+`fetch` termine. (Las dos líneas de re-sync que también viven acá llegaron en el paso 9.)
+
+### `entrypoints/content.ts` — la sonda de página
+
+Content script con `registration: "runtime"`: NO va en el manifest ni se inyecta solo;
+solo existe cuando el service worker lo inyecta con `executeScript` (posible gracias a
+`activeTab` + `scripting`, sin permisos de host). Su `main()` devuelve
+`{title: document.title, url: location.href}` — y ese return se convierte en el
+resultado de `executeScript`. Soporte: `utils/page-info.ts` (`PageInfo` + guard
+`isPageInfo`) y `utils/test-event.ts` (`buildTestEventPayload(page)`: título real de la
+pestaña como `mangaName`, `"Cap. 0 (evento test)"` como label reconocible).
+
+### `entrypoints/popup/` — la ventanita
+
+React montado en `main.tsx` → `App.tsx` (el shell HTML es `index.html`; estilos en
+`style.css` global y `App.css` del componente). Todo el estado del popup se modela con
+**uniones discriminadas** (regla del repo: nada de combinaciones de booleans):
+
+- `ConnectionState`: `checking | connected | disconnected{error}` — semáforo que se
+  resuelve con `sendRuntimeMessage({kind:"ping"})` al montar.
+- `TestEventState`: `idle | sending | sent{data} | failed{error}` — ciclo del botón
+  "Enviar evento test".
+- `SiteState`: `loading | untrackable | untracked{host, originPattern, tabId} |
+  tracked{...} | error{error}` — estado del sitio de la pestaña activa (llegó en el
+  paso 7, pero vive acá).
+
+Funciones del popup: `readActiveSite()` (lee la pestaña activa con
+`browser.tabs.query`, valida que sea http/https, arma el `originPattern`
+(`https://sitio.com/*`) y consulta `browser.permissions.contains` para saber si ya está
+trackeado); `enableTracking(current)` (pide el permiso con
+`browser.permissions.request` — **debe ocurrir en el popup porque requiere gesto del
+usuario** — y recién después manda `register-site` al background);
+`disableTracking(current)` (manda `unregister-site` y devuelve el permiso con
+`permissions.remove`); `sendTestEvent()`. Componentes de render: `ConnectionBadge`,
+`SiteSection`, `TestEventResult` — cada uno un `switch` sobre su unión.
+
+**Verificación end-to-end de este paso** (con el usuario): popup "Conectado" en Brave y
+Chrome, botón de evento test → fila real en SQLite vía `GET /api/library`. Fue el
+"hola mundo" del sistema completo. Errores reales encontrados en el camino: intentar el
+evento test sobre una pestaña `chrome://` (no inyectable — por eso `readActiveSite`
+valida el protocolo).
+
+---
+
+## 6. Paso 6 — El pipeline de detección (commit `d3bd50e`)
+
+Con el canal probado, la primera feature real: mirar una página y decidir "¿esto es un
+capítulo de manga? ¿cuál?". Diseño clave: **todo el pipeline es puro** (funciones que
+reciben datos y devuelven datos, sin `browser.*`, sin fetch) para poder testearlo
+exhaustivamente con happy-dom. La E/S queda en los bordes.
+
+### `utils/detection/page-signals.ts` — leer el DOM una sola vez
+
+- `interface PageSignals` — `{url, documentTitle, ogTitle, twitterTitle, firstHeading}`.
+  Todo lo downstream trabaja sobre esta estructura plana; el DOM se toca solo acá.
+- `collectPageSignals(doc, url)` — la arma leyendo `doc.title`, los `<meta>` y el primer
+  `<h1>` con texto.
+- `metaContent(doc, selector)` (interna) — texto de `meta[property="og:title"]` /
+  `meta[name="twitter:title"]`, con trim, `null` si no está.
+- `firstHeadingText(doc)` (interna) — recorre los `h1` y devuelve el primero no vacío.
+
+### `utils/detection/heuristics.ts` — el cerebro (sin adapter)
+
+Constantes que definen el comportamiento:
+
+- `CONFIDENCE_THRESHOLD = 0.7` — exportada; debajo de esto NO se envía nada (la
+  calibración manual de la Fase 7 cubrirá esos casos). Preferimos perder un evento antes
+  que guardar basura.
+- Los puntos de confianza se suman en **centésimas enteras** y se dividen por 100 al
+  final: `CHAPTER_BASE_CONFIDENCE = 45`, `TITLE_CHAPTER_BONUS = 10`,
+  `TITLE_CONFIDENCE = {og: 35, twitter: 30, heading: 25, "document-title": 20}`.
+  ¿Por qué enteros? Sumar floats (0.45+0.35+0.1) produce ruido binario
+  (0.9000000000000001) que rompe asserts de tests; con enteros la suma es exacta.
+- `CHAPTER_URL_PATTERNS` — regexes de capítulo en URL: `/cap(itulo)?[/-]N`,
+  `/chapter[/-]N`, `/ch[/-]N`, `/c/N`, con decimales `.` o `,`.
+- `READER_PATH_PATTERN` — `^/(?:leer|lector|read|reader|ver|viewer)(?:_\w+)?/` (llegó en
+  el paso 10.4; se explica ahí).
+- `CHAPTER_WORDS` — `(?:cap[íi]tulo|chapter|cap\.?|ch\.?)`, con las alternativas largas
+  primero para que "capítulo" no se matchee a medias como "cap".
+
+Funciones:
+
+- `detectFromHeuristics(signals): Detection` — el orquestador. `Detection` es otra unión
+  discriminada: `{detected:true, mangaName, chapterLabel, confidence}` o
+  `{detected:false, reason}` con razones precisas (`no-chapter-in-url`, `no-title`,
+  `no-chapter-in-title`) que hacen el debugging trivial. Lógica: (1) gate de URL — si la
+  URL no tiene patrón de capítulo NI es ruta de lector, es un catálogo/home → afuera;
+  (2) elegir título con `pickTitle`; (3) el capítulo del título le gana al de la URL;
+  (4) limpiar el nombre; (5) calcular confianza.
+- `extractChapterFromUrl(url)` — prueba los patrones sobre `pathname` (solo el path: un
+  `?q=/chapter-12` en el query no cuenta) y normaliza coma decimal → punto.
+- `isReaderPath(url)` — ¿el path arranca con `/leer/`, `/viewer/`, etc.?
+- `pathnameOf(url)` (interna) — `new URL(url).pathname` con try/catch → `null` si la URL
+  es inválida.
+- `extractChapterFromTitle(title)` — `\b` + `CHAPTER_WORDS` + número: "Capítulo 122 de X"
+  → `"122"`. El `\b` evita que "Punch 3" cuente como "ch 3".
+- `pickTitle(signals)` (interna) — prioridad og > twitter > heading > document-title,
+  con un refinamiento del paso 10.4: la primera fuente **que nombre un capítulo** le
+  gana a una de mayor prioridad que no lo nombre.
+- `cleanMangaName(rawTitle, chapterNumber)` — el nombre debe ser **estable entre
+  capítulos** (el API deduplica por slug normalizado del nombre): corta el sufijo de
+  sitio tras `|`, y si el fragmento "Capítulo N" tiene texto antes, el nombre es TODO lo
+  anterior (lo que sigue es basura del sitio); si está al inicio ("Capítulo N de X"),
+  tira el fragmento líder y su conector; limpia separadores sueltos y espacios.
+
+### `utils/detection/adapter.ts` — cuando hay calibración guardada
+
+- `detectFromAdapter(adapter, doc, url)` — un adapter es calibración confirmada por el
+  usuario (Fase 7, futura), así que si matchea, `confidence: 1`. Si el selector ya no
+  encuentra nada (el sitio cambió su HTML) devuelve `null` y el caller cae a heurística.
+- `selectorText(doc, selector)` / `chapterFromRegex(regex, url)` (internas) — ambas con
+  try/catch: un selector o regex **inválido guardado en la DB** no puede tirar el
+  pipeline; se trata como "no matcheó".
+
+### `utils/detection/detect.ts` — la puerta de entrada
+
+- `detectReading(doc, url, adapter)` — 12 líneas: adapter primero (si hay y matchea),
+  heurística como fallback. Es lo único que llama el content script.
+
+Tests colocados de todo el pipeline (los de DOM con `// @vitest-environment happy-dom`).
+Detalle aprendido con happy-dom: si seteás `document.title` y DESPUÉS reemplazás
+`head.innerHTML`, el título se pierde — el orden en el fixture importa.
+
+---
+
+## 7. Paso 7 — Tracking automático opt-in por sitio (commit `96034bf`)
+
+La pieza que une todo: "quiero que ESTE sitio se trackee solo". Diseño en dos mitades:
+
+### `utils/site-registration.ts` — registrar el detector por origen
+
+Constantes: `DETECTOR_SCRIPT = "/content-scripts/detector.js"` (la barra inicial es
+obligatoria — tipo `ScriptPublicPath` de `.wxt/`), `DETECTOR_ID_PREFIX = "detector:"`,
+`BACKEND_ORIGIN_PATTERN = "http://localhost:5150/*"` (el permiso fijo del backend no es
+un sitio trackeado).
+
+- `scriptId(originPattern)` (interna) — `"detector:" + originPattern`: el id del
+  registro codifica a qué origen pertenece, lo que después permite la re-sincronización.
+- `detectorRegistration(originPattern)` (interna) — arma el objeto de registro:
+  `{id, matches:[origin], js:[DETECTOR_SCRIPT], runAt:"document_idle",
+  persistAcrossSessions:true}`. Su tipo se deriva con
+  `Parameters<typeof browser.scripting.registerContentScripts>[0][number]` (lección: un
+  `as const` acá produce arrays readonly incompatibles con la API).
+- `registerSite(originPattern, tabId)` — si no existe el registro, lo crea con
+  `browser.scripting.registerContentScripts`; además inyecta el detector **ya mismo** en
+  la pestaña actual con `executeScript` (sin esperar una recarga). Devuelve
+  `ApiResult<null>` (mismo patrón de errores del cliente HTTP).
+- `unregisterSite(originPattern)` — quita el registro si existe (no-op si no).
+- `syncRegisteredSites()` — llegó en el paso 9; explicada ahí.
+
+### `entrypoints/detector.content.ts` — el detector en la página
+
+`registration: "runtime"` (fuera del manifest; solo existe en orígenes registrados).
+Dentro de `main(ctx)`:
+
+- Guard `window.__mangaTrackerDetectorLoaded` — evita doble ejecución cuando coinciden
+  el registro y el `executeScript` inmediato de `registerSite`.
+- `SETTLE_DELAY_MS = 2000` — las SPA cargan contenido después del load; se espera 2 s.
+- `detectAndReport()` — el corazón: si la URL ya fue reportada (`lastReportedUrl`),
+  corta; pide el adapter al background (`get-adapter`); corre
+  `detectReading(document, url, adapter)`; si `detected` y
+  `confidence >= CONFIDENCE_THRESHOLD`, manda `record-event`; solo si el envío fue `ok`
+  marca `lastReportedUrl = url` (si falló, el próximo intento reintenta).
+- `scheduleDetection()` — debounce: `clearTimeout` + `ctx.setTimeout(detectAndReport,
+  2000)`. Usar `ctx.setTimeout` (de WXT) en vez de `setTimeout` hace que el timer muera
+  si la extensión se invalida.
+- Disparadores: al cargar; `ctx.addEventListener(window, "wxt:locationchange", ...)` —
+  evento de WXT que cubre pushState/replaceState/popstate de las SPA (Fase 8 del plan
+  resuelta con una línea); y el observer de título del paso 10.4.
+
+### El circuito opt-in completo
+
+Popup: botón "Trackear este sitio" → `browser.permissions.request({origins})` (gesto de
+usuario, obligatorio) → mensaje `register-site` → background registra el detector para
+ese origen y lo inyecta en la pestaña. Desde ahí, cada visita a ese sitio corre el
+detector automáticamente. "Dejar de trackear" desanda todo.
+
+---
+
+## 8. Paso 8 — Fix: nombres sucios (commit `2379582`)
+
+**Síntoma real:** el primer manga auto-guardado quedó como
+"Capítulo 32 de Mi Invocación es de Clase EX | Olympus Scanlation" en vez de
+"Mi Invocación es de Clase EX".
+
+**Diagnóstico:** el og:title de Olympus tiene el formato "Capítulo N de <nombre> |
+<sitio>", y `cleanMangaName` de entonces solo quitaba el fragmento "Capítulo N" en
+cualquier posición, dejando el "de" líder y el sufijo.
+
+**Fix:** la regla del fragmento líder en `cleanMangaName` (regex anclada a `^` que
+además consume el conector `de|del|of` y separadores). Test con el título real del
+sitio. Además, limpieza a mano de la fila basura en la DB de producción (con
+autorización del usuario; `sqlite3`, borrando eventos antes que mangas por la FK).
+
+---
+
+## 9. Paso 9 — Fix: capítulo 130729 (commit `890ca32`) y el reload que rompía todo (commit `5ebe57b`)
+
+### 9a. El título le gana a la URL
+
+**Síntoma real:** leyendo el capítulo **122**, se guardó "Cap. 130729".
+
+**Diagnóstico:** la URL de Olympus es `/capitulo/130729/` — ese número es un **id
+interno**, no el capítulo. El capítulo real estaba en el og:title ("Capítulo 122 de...").
+
+**Fix:** en `detectFromHeuristics`, el número de la URL pasó a ser solo el **gate**
+("esto es una página de capítulo") y candidato de reserva;
+`extractChapterFromTitle(title) ?? urlChapter` — si el título nombra un capítulo, gana.
+Tests con el caso real.
+
+### 9b. Chrome borra los registros al recargar la extensión
+
+**Síntoma real:** tras apretar ⟳ en `chrome://extensions`, ningún manga se guardaba más,
+aunque el popup decía "tracking activo".
+
+**Diagnóstico** (contra la documentación de Chrome): los content scripts registrados con
+`scripting.registerContentScripts` + `persistAcrossSessions: true` sobreviven reinicios
+del **navegador**, pero se **borran al recargar/actualizar la extensión**. El permiso de
+host sí sobrevive — por eso el popup (que solo mira `permissions.contains`) mentía.
+
+**Fix:** `syncRegisteredSites()` en `site-registration.ts` — reconciliación en ambas
+direcciones: lee `browser.permissions.getAll()` (verdad sobre lo autorizado) y
+`getRegisteredContentScripts()` (verdad sobre lo registrado); registra los orígenes
+concedidos sin registro (excluyendo `BACKEND_ORIGIN_PATTERN`) y des-registra los ids
+`detector:*` cuyo permiso fue revocado. El background la ejecuta en
+`browser.runtime.onInstalled` (cubre el reload — este era el bug) y
+`browser.runtime.onStartup` (defensivo; en Firefox los registros tampoco persisten entre
+sesiones), vía `resyncDetectors()` que loguea si la sync falla. Cinco tests nuevos
+stubeando `scripting`/`permissions` sobre `fakeBrowser` (casts `as unknown as typeof`
+con comentario: el fake no implementa esos namespaces).
+
+---
+
+## 10. Paso 10 — Fix: sitios SPA sin capítulo en la URL (commit `0a480c6`)
+
+**Síntoma real:** manhwaweb.com trackeado, capítulo abierto, nada guardado; Olympus
+seguía funcionando.
+
+**Diagnóstico (el más interesante del proyecto — se investigó el sitio real):**
+
+1. `curl` a la página → HTML shell de Vite/React **vacío** (`<div id="root">`), título
+   genérico, sin og:title ni h1. Todo se renderiza client-side.
+2. La URL (`/leer/<slug>_1750256573107-36_01`) no matchea ningún patrón de capítulo →
+   la detección moría en `no-chapter-in-url` sin mirar nada más.
+3. Descargando el **bundle JS del sitio** y grepeándolo se encontró la plantilla:
+   `document.title = \`${name} Capitulo ${chapter} manhwa - ManhwaWeb\`` — el capítulo
+   SOLO existe en `document.title`, y recién cuando la SPA termina de cargar datos.
+4. Tres bloqueos encadenados: el gate de URL lo descartaba; aunque pasara, document-title
+   solo daba 0.45+0.20 = 0.65 < 0.7; y el título correcto podía llegar DESPUÉS de los
+   2 s del detector.
+
+**Fix, pieza por pieza:**
+
+- `isReaderPath` + gate de dos niveles: las rutas de lector pasan el gate **solo si el
+  título nombra un capítulo explícito** (los números de esas URLs son ids internos y
+  jamás se usan como capítulo → razón nueva `no-chapter-in-title`). Los catálogos siguen
+  bloqueados.
+- `TITLE_CHAPTER_BONUS = 10`: un título que dice "Capitulo N" es evidencia fuerte, venga
+  de donde venga → manhwaweb queda en 0.75 ≥ 0.7 y se envía.
+- `pickTitle` prefiere la fuente con capítulo (un `h1` de logo ya no tapa al
+  document.title útil).
+- `cleanMangaName` con regla de prefijo (el nombre es lo anterior al fragmento;
+  " manhwa - ManhwaWeb" muere) y `\b` en el fragmento (bug latente "Punch 3" → "Pun").
+- `MutationObserver` sobre `document.head` en el detector: cuando `document.title`
+  cambia de verdad (se compara contra `lastSeenTitle`), se re-agenda la detección. Se
+  desconecta en `ctx.onInvalidated`.
+
+Tests con la URL y el título reales de manhwaweb. Verificado por el usuario en el sitio
+real ("funciono perfecto").
+
+---
+
+## 11. Cómo se prueba y se opera
+
+- **Gates** (siempre los tres antes de dar algo por terminado): `bun run lint`,
+  `bun run typecheck`, `bun run test`. Hoy: 94 tests en 8 archivos.
+- **Estructura de tests:** colocados junto a lo que prueban. Los puros (heurística) no
+  necesitan entorno; los de DOM usan happy-dom; los de `browser.*` usan `fakeBrowser` de
+  `wxt/testing` (con `fakeBrowser.reset()` en `beforeEach`) y stubs para los namespaces
+  que el fake no trae.
+- **Cargar en el navegador:** `bun run dev` levanta WXT con HMR y genera
+  `.output/chrome-mv3-dev/`; en `chrome://extensions` → modo desarrollador → "Cargar
+  extensión sin empaquetar" apuntando a esa carpeta. `bun run build` genera la versión
+  final en `.output/chrome-mv3/`. Tras un build nuevo: ⟳ en `chrome://extensions` (y
+  gracias al paso 9b, recargar ya no rompe nada).
+- **Ver que funciona de verdad:** abrir un capítulo en un sitio trackeado, esperar ~2 s,
+  y mirar `curl http://localhost:5150/api/library` (o el dashboard).
+
+---
+
+## 12. Recetario: cómo repetir esto en otro proyecto
+
+1. **Elegí el framework re-validando el ecosistema HOY** (CLI, artefactos generados,
+   HMR, soporte de tu runtime), no con lo que decía un plan viejo. Commiteá el template
+   intacto como primer commit.
+2. **Tooling antes que lógica**: mismos gates que tus otros repos (lint, typecheck,
+   test) para que cada línea nazca validada.
+3. **Identidad y permisos antes que features** si otro sistema depende de tu identidad
+   (acá: el CORS del backend ← id estable ← clave fija). Permisos: el mínimo estático,
+   el resto opt-in en runtime.
+4. **El contrato con el exterior es la primera pieza de código**: tipos + cliente que
+   devuelve `Result` (unión discriminada) en vez de excepciones.
+5. **Canal de comunicación tipado** encima de cualquier canal untyped (mensajería,
+   IPC): unión discriminada de mensajes + mapa de respuestas + type guard en el receptor.
+6. **Entrypoints finos, lógica en módulos puros testeables**. Si el entorno de test no
+   soporta algo del entorno real (fake-browser vs Chrome), mové la lógica, no bajes el
+   estándar del código de producción.
+7. **Features con el pipeline puro en el centro** y la E/S en los bordes; uniones
+   discriminadas con razones de rechazo explícitas para debuggear rápido.
+8. **Los fixes nacen de síntomas reales**: reproducí, mirá la fuente de verdad (DB,
+   docs oficiales del navegador, el HTML/bundle del sitio real), arreglá la causa raíz y
+   fijala con un test que use los datos reales del síntoma.
+9. **Documentá las decisiones donde las vas a buscar después** (PLAN.md compartido,
+   AGENTS.md del repo, comentarios solo donde el código no puede decirlo).
