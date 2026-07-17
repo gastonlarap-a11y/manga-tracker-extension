@@ -648,6 +648,42 @@ como og:image. `coverFromDocument` descarta pathnames con pinta de branding
 (`logo|banner|favicon|icon|default|placeholder`) — mejor no mandar nada (el usuario
 puede fijar la portada a mano en el dashboard) que llenar la biblioteca de logos.
 
+### 11e. La caza de portada en 3 niveles (`utils/detection/cover-hunt.ts`)
+
+El filtro anterior dejó las portadas en cero: el og:image del capítulo casi nunca es
+la portada. Inspeccionando la página REAL de Olympus se encontró la señal utilizable
+— y sus trampas: los paneles del capítulo llevan el nombre del manga en su `alt`
+(pero miden 4000px de alto), y los links `/series/...` visibles son de mangas
+RECOMENDADOS, no del propio. El diseño resultante:
+
+- `nameMatches(name, text)` — solape de palabras significativas del nombre
+  (normalizadas, ≥4 letras, exige ≥ mitad): "De duende a Dios Goblin" matchea su
+  propia ficha y descarta "secta-de-la-montana".
+- `findSeriesLink` — anchors del mismo origen con path de ficha
+  (`/series|manga|comics?|.../`) puntuados con `nameMatches` sobre href + texto.
+- `coverFromSeriesDocument` — la ficha se descarga con `fetch` same-origin (un
+  content script puede), se parsea con `DOMParser` y se toma su og:image (filtrado)
+  o la img cuyo alt nombra al manga. Ojo aprendido: el `baseURI` de un documento de
+  DOMParser NO es la página descargada — las URLs se resuelven contra la URL de la
+  ficha explícitamente.
+- `pickCoverFromImages` — último recurso en la propia página: img con alt del manga
+  Y dimensiones de portada (`naturalWidth` 80–600, aspecto 1.1–2.0) — los paneles
+  quedan fuera por tamaño.
+- **Cuándo corre**: el detector manda el evento SIN portada; si la respuesta dice
+  `manga.coverUrl === null`, caza y re-envía el mismo evento con `coverUrl` — el
+  backend lo dedupea (200) pero persiste la portada (first-wins) y el SSE actualiza
+  la tarjeta. Costo: una vez por manga, nunca más.
+
+### 11f. Reinyección en pestañas abiertas (post-reload)
+
+Bug real: tras ⟳, una pestaña de Olympus abierta desde antes dejó de trackear — el
+reload invalida los content scripts vivos y los registrados solo se inyectan en
+cargas nuevas; "siguiente capítulo" en una SPA no recarga (el Cap. 108 nunca llegó a
+la DB). Fix: `injectDetectorIntoOpenTabs()` — tras el re-sync, por cada origen
+concedido `browser.tabs.query({url: originPattern})` (los host permissions dan la
+visibilidad; no hace falta el permiso "tabs") y `executeScript` del detector en cada
+pestaña, con try/catch por pestaña. El guard de doble inyección lo hace idempotente.
+
 ---
 
 ## 12. Cómo se prueba y se opera
