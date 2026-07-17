@@ -635,6 +635,24 @@ Lección recurrente confirmada una vez más: al crear el entrypoint nuevo, el pa
 `"/content-scripts/calibration.js"` dio TS2820 hasta correr `bunx wxt prepare`
 (regenera el tipo `ScriptPublicPath`).
 
+**Bug descubierto en producción (y su moraleja): el overlay nunca funcionó en ningún
+sitio.** El usuario reportó "le di a calibrar y no salió nada". Diagnóstico sobre el
+manifest GENERADO (`.output/chrome-mv3/manifest.json`): WXT emitió
+`web_accessible_resources: [{resources: ["content-scripts/calibration.css"],
+matches: []}]` — con `registration: "runtime"` WXT no sabe en qué sitios correrá el
+script, así que declara el CSS con **matches vacío**, y matches vacío significa que
+NINGÚN sitio puede fetchear ese recurso. `createShadowRootUi` con `cssInjectionMode:
+"ui"` necesita descargar ese CSS para inyectarlo en el Shadow DOM: el fetch fallaba,
+la promesa rechazaba y el overlay moría **en silencio** (la extensión carga normal,
+Chrome no se queja de un array vacío). Doble fix: (1) declarar la entrada a mano en
+`wxt.config.ts` → `manifest.web_accessible_resources` con `matches: ["http://*/*",
+"https://*/*"]` (WXT añade igual su entrada vacía; Chrome toma la UNIÓN de las
+entradas, así que la nuestra es la que da acceso); (2) envolver el mount del
+entrypoint en try/catch con `console.error("[manga-tracker] calibration overlay
+failed", cause)` y reset del guard — un fallo de esta clase no puede volver a ser
+invisible. Moraleja: **verificar siempre el manifest generado, no el config**; y todo
+camino de UI que pueda fallar async necesita un catch que lo cuente.
+
 ### 11d. Portadas para el dashboard (agregado posterior)
 
 `coverFromDocument(doc)` en `page-signals.ts`: lee `og:image` (fallback
@@ -683,6 +701,52 @@ la DB). Fix: `injectDetectorIntoOpenTabs()` — tras el re-sync, por cada origen
 concedido `browser.tabs.query({url: originPattern})` (los host permissions dan la
 visibilidad; no hace falta el permiso "tabs") y `executeScript` del detector en cada
 pestaña, con try/catch por pestaña. El guard de doble inyección lo hace idempotente.
+
+### 11g. Nivel 4 de la caza de portadas: la ficha RENDERIZADA (para SPAs)
+
+Caso real que motivó este nivel: los mangas de manhwaweb seguían sin portada aunque
+la caza de 3 niveles ya funcionaba en Olympus e Ikigai. La causa es estructural, no
+un bug: manhwaweb es una **SPA pura** — la ficha que el nivel 2 descarga con `fetch`
+es un shell HTML vacío (el contenido lo pinta JavaScript después), y la página del
+capítulo solo tiene paneles (nivel 3 muerto). La portada real SOLO existe en el DOM
+**renderizado** de la ficha… que el usuario visita naturalmente al navegar el sitio
+para elegir qué leer. De ahí la idea: en vez de scrapear, **esperar a que el usuario
+pase por ahí** (nivel oportunista).
+
+El detector ya corre en TODAS las páginas de un sitio trackeado (se registra por
+origen, no por path), así que la pieza encaja sin permisos nuevos:
+
+- `isSeriesPath(pathname)` (`cover-hunt.ts`) — expone el `SERIES_PATH_PATTERN` que ya
+  usaba `findSeriesLink` (`/series|manga|manhwa|comics?|obra|.../`): distingue una
+  ficha de un capítulo (`/leer/...`, `/capitulo/...` no matchean).
+- `matchLibraryEntry(entries, pageText)` (`cover-hunt.ts`, pura) — de las entradas de
+  la biblioteca **sin portada** (`coverUrl === null`), la de mayor solape de palabras
+  significativas contra `document.title + <h1>`; la misma regla "≥ mitad de las
+  palabras" de `nameMatches`. Devuelve null si ninguna matchea — en una ficha ajena
+  no pasa nada.
+- `pickSeriesPageCover(doc, mangaName)` (`cover-hunt.ts`) — sobre el DOM renderizado:
+  og:image (filtrado anti-branding) → img cuyo alt/src nombre al manga → **la img
+  retrato más grande** (`naturalWidth` 120–1000, aspecto 1.15–2.2). La ventana es más
+  generosa que la del nivel 3 porque una ficha no tiene paneles: su portada hero es
+  por lejos la mayor imagen retrato de la página.
+- Mensajería nueva: `get-library` → `GET /api/library` y `set-cover {mangaId,
+  coverUrl}` → `PUT /api/mangas/:id` (el endpoint que ya existía para la edición
+  manual desde el dashboard) — con sus guards en `isRuntimeMessage`, ramas en
+  `handleMessage` y `getLibrary()`/`setMangaCover()` en el cliente. `LibraryEntryDto`
+  se duplicó a mano en `utils/api/types.ts` (misma regla de siempre: el contrato
+  cambia en el API → cambia aquí en el mismo commit).
+- Integración (`detector.content.ts`): cuando la detección devuelve
+  `no-chapter-in-url` Y `isSeriesPath(location.pathname)` → `captureSeriesCover(url)`:
+  pide la biblioteca, matchea, extrae y manda `set-cover`. El guard
+  `lastCoverCheckUrl` se marca **solo tras enviar una portada** — si la SPA aún no
+  renderizó las imágenes, el observer de `<title>` re-dispara la detección y el
+  intento se repite hasta que haya algo que extraer. El SSE del backend hace el
+  resto: la tarjeta del dashboard recibe la portada en segundos.
+
+Costo en régimen: cero — en cuanto ningún manga de la biblioteca está sin portada,
+`matchLibraryEntry` devuelve null en el primer filtro y no se manda nada. Los sitios
+no-SPA no cambian: sus portadas ya llegaron por los niveles 1–3 con el primer
+capítulo leído.
 
 ---
 
