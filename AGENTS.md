@@ -1,7 +1,7 @@
 # manga-tracker-extension
 
-Browser extension (MV3) of the local-first manga tracker. WXT + React 19 + TypeScript,
-Bun as package manager. Talks only to `manga-tracker-api` on `http://localhost:5150`.
+Browser extension (MV3) of the local-first manga tracker. Talks only to
+`manga-tracker-api` on `http://localhost:5150`.
 Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos).
 
 ## Layout
@@ -24,17 +24,15 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - `.output/` — build output; `chrome-mv3-dev/` (dev) and `chrome-mv3/` (build), gitignored
 
 ## Commands
-- Dev: `bun run dev` · Build: `bun run build` · Test: `bun run test` (vitest, not `bun test`)
-- Single test: `bunx vitest run <file>`
-- Lint: `bun run lint` · Format: `bun run format` · Typecheck: `bun run typecheck`
+- Test: `bun run test` (vitest, not `bun test`) · Single test: `bunx vitest run <file>`
 
 ## Rules
 - **Contract duplication**: `utils/api/types.ts` mirrors the API's Zod schemas by hand.
   A contract change in `manga-tracker-api` updates this file in the same commit.
 - The background service worker is the only piece that does `fetch()` to the backend;
   popup and content scripts go through typed runtime messages (`utils/messages.ts`).
-- Entrypoints stay thin (wiring only); logic lives in `utils/` where vitest can reach it
-  (mirror of the API's routes/service split).
+- Entrypoints stay thin (wiring only); logic lives in `utils/` where vitest can reach it;
+  `utils/` never imports from `entrypoints/` (mirror of the API's routes/service split).
 - The extension id must stay `cfjiinlnepkmlaafdclmlpjbmpofplop`: never remove or rotate
   `manifest.key` in `wxt.config.ts` (the API's CORS allowlist depends on it).
   The private key (`extension-key.pem`) stays out of git.

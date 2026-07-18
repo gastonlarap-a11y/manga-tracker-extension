@@ -5,11 +5,12 @@ what manga/chapter is being read and reports it to
 [`manga-tracker-api`](../manga-tracker-api) running on `http://localhost:5150`. Built with
 [WXT](https://wxt.dev) + React 19, TypeScript, and Bun.
 
-Current state: **phases 4-6 + SPA detection (8)** of the project plan — popup connected to
-the backend, opt-in per-site tracking (host permission requested at runtime), automatic
-chapter detection (calibrated adapter or heuristics with a 0.7 confidence threshold; catalog
-pages are never reported) and SPA navigation support with a 2s settle debounce. The
-calibration overlay (phase 7) comes next.
+Current state: **phases 4-8 of the project plan are complete** — popup connected to the
+backend, opt-in per-site tracking (host permission requested at runtime), automatic
+chapter detection (calibrated adapter or heuristics with a 0.7 confidence threshold;
+catalog pages are never reported), SPA navigation support with a 2s settle debounce, the
+two-click calibration overlay (phase 7) and opportunistic cover capture from rendered
+series pages. The remaining phases (9-11) live in `manga-tracker-api`.
 
 ## Prerequisites
 
@@ -52,11 +53,15 @@ entrypoints/
 ├─ background.ts        → service worker: the only piece that talks to the backend
 ├─ content.ts           → injected on demand; returns the page's {title, url}
 ├─ detector.content.ts  → auto-detection; registered per tracked origin, SPA-aware
+├─ calibration.content/ → two-click calibration overlay (Shadow DOM UI)
 └─ popup/               → React popup: connection status, site tracking toggle, test button
 utils/
 ├─ api/types.ts         → contracts duplicated by hand from manga-tracker-api
 ├─ api/client.ts        → fetch wrapper for the backend (Result-style responses)
 ├─ detection/           → pure pipeline: page signals → adapter/heuristics → confidence
+├─ detection/cover-hunt.ts → three-level hunt for the real manga cover on series pages
+├─ calibration.ts       → selector generation for the overlay (round-trip validated)
+├─ detection-log.ts     → last detection per tab (in-memory); feeds the popup diagnosis
 ├─ messages.ts          → typed runtime messages (popup/content ↔ background)
 ├─ message-handler.ts   → background business logic (routes/service split)
 ├─ site-registration.ts → runtime content-script registration per granted origin

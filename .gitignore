@@ -28,3 +28,7 @@ web-ext.config.ts
 # Secrets / local keys
 *.pem
 .env*
+
+# Claude Code local (machine-specific)
+CLAUDE.local.md
+.claude/settings.local.json
