@@ -1,0 +1,31 @@
+{
+  "enabledPlugins": {
+    "ux@dev-plugins": true,
+    "typescript-lsp@claude-plugins-official": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bun run test)",
+      "Bash(bun run lint)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run format)",
+      "Bash(bun run build)",
+      "Bash(bunx vitest run *)"
+    ],
+    "ask": ["Bash(git push *)"],
+    "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -E '\\.(ts|tsx|json|css)$' | xargs -r bunx biome check --write --no-errors-on-unmatched"
+          }
+        ]
+      }
+    ]
+  }
+}
