@@ -5,6 +5,7 @@ import {
   detectFromHeuristics,
   extractChapterFromTitle,
   extractChapterFromUrl,
+  extractSeriesSlug,
   isReaderPath,
 } from "./heuristics";
 import type { PageSignals } from "./page-signals";
@@ -16,6 +17,8 @@ function signals(overrides: Partial<PageSignals>): PageSignals {
     ogTitle: null,
     twitterTitle: null,
     firstHeading: null,
+    siteName: null,
+    seriesLinkTitle: null,
     ...overrides,
   };
 }
@@ -30,6 +33,14 @@ describe("extractChapterFromUrl", () => {
     ["https://example.com/one-piece/ch-45", "45"],
     ["https://example.com/one-piece/c/45", "45"],
     ["https://example.com/serie/capitulo/130,5", "130.5"],
+    [
+      "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/",
+      "89",
+    ],
+    [
+      "https://lectorxd.com/manhua/un-nio-criado-por-un-rey-demonio-y-un-rey-dragon-parece-tener-una-vida-escolar-inigualable/leer/56",
+      "56",
+    ],
   ])("extracts the chapter from %s", (url, expected) => {
     expect(extractChapterFromUrl(url)).toBe(expected);
   });
@@ -38,6 +49,7 @@ describe("extractChapterFromUrl", () => {
     ["https://olympusxyz.com/", "catalog home"],
     ["https://example.com/biblioteca", "library listing"],
     ["https://example.com/manga/one-piece", "manga detail without chapter"],
+    ["https://example.com/manga/one-piece/leer/", "reader segment without id"],
     ["not a url", "invalid url"],
   ])("returns null for %s (%s)", (url) => {
     expect(extractChapterFromUrl(url)).toBeNull();
@@ -56,6 +68,7 @@ describe("isReaderPath", () => {
     ["https://manhwaweb.com/leer_18/some-slug_123"],
     ["https://example.com/read/solo-leveling/5"],
     ["https://example.com/viewer/abc123"],
+    ["https://example.com/manga/one-piece/leer/58204923"],
   ])("accepts the reader path %s", (url) => {
     expect(isReaderPath(url)).toBe(true);
   });
@@ -64,9 +77,38 @@ describe("isReaderPath", () => {
     ["https://manhwaweb.com/", "catalog home"],
     ["https://manhwaweb.com/biblioteca", "library listing"],
     ["https://manhwaweb.com/manhwa/some-slug_123", "manga detail"],
+    ["https://example.com/already-read/123", "reader word inside a segment"],
+    ["https://example.com/reader-tips/", "hyphenated reader segment"],
     ["not a url", "invalid url"],
   ])("rejects %s (%s)", (url) => {
     expect(isReaderPath(url)).toBe(false);
+  });
+});
+
+describe("extractSeriesSlug", () => {
+  it.each([
+    [
+      "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/",
+      "espadachin-a-tiempo-completo",
+    ],
+    ["https://example.com/manga/one-piece/capitulo/1100", "one-piece"],
+    ["https://example.com/one-piece/chapter-12", "one-piece"],
+    [
+      "https://lectorxd.com/manhua/un-nio-criado-por-un-rey-demonio-y-un-rey-dragon-parece-tener-una-vida-escolar-inigualable/leer/56",
+      "un-nio-criado-por-un-rey-demonio-y-un-rey-dragon-parece-tener-una-vida-escolar-inigualable",
+    ],
+  ])("extracts the series slug from %s", (url, expected) => {
+    expect(extractSeriesSlug(url)).toBe(expected);
+  });
+
+  it.each([
+    ["https://olympusxyz.com/capitulo/130729/", "chapter at the path root"],
+    ["https://example.com/series/capitulo-12/", "section segment as slug"],
+    ["https://example.com/123456/capitulo-12/", "numeric id segment"],
+    ["https://manhwaweb.com/leer/some-slug_123", "reader path, no marker"],
+    ["not a url", "invalid url"],
+  ])("returns null for %s (%s)", (url) => {
+    expect(extractSeriesSlug(url)).toBeNull();
   });
 });
 
@@ -194,6 +236,35 @@ describe("detectFromHeuristics", () => {
     });
   });
 
+  it("detects a reader-segment chapter nested under the series path (lectorxd)", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://lectorxd.com/manhua/un-nio-criado-por-un-rey-demonio-y-un-rey-dragon-parece-tener-una-vida-escolar-inigualable/leer/56",
+        ogTitle:
+          "Leer Un Niño Criado Por un Rey Demonio y un Rey Dragón Parece Tener una Vida Escolar Inigualable Capítulo 56 Online | Lector XD",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName:
+        "Un Niño Criado Por un Rey Demonio y un Rey Dragón Parece Tener una Vida Escolar Inigualable",
+      chapterLabel: "Cap. 56",
+      confidence: 0.9,
+    });
+  });
+
+  it("still rejects a nested reader-path catalog page without a chapter title", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://example.com/manga/one-piece/leer/",
+        ogTitle: "One Piece | Example Scan",
+      }),
+    );
+
+    expect(result).toEqual({ detected: false, reason: "no-chapter-in-title" });
+  });
+
   it("does not detect catalog pages (no chapter in url)", () => {
     const result = detectFromHeuristics(
       signals({
@@ -257,7 +328,71 @@ describe("detectFromHeuristics", () => {
   });
 
   it("does not detect when no title source exists", () => {
-    const result = detectFromHeuristics(signals({ documentTitle: "  " }));
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://example.com/capitulo/1100",
+        documentTitle: "  ",
+      }),
+    );
+
+    expect(result).toEqual({ detected: false, reason: "no-title" });
+  });
+
+  it("uses the validated series link when every title is branding (mhscans)", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/",
+        documentTitle: "MHScans - MHScans (Oficial)",
+        ogTitle: "MHScans - MHScans (Oficial)",
+        twitterTitle: "MHScans - MHScans (Oficial)",
+        siteName: "MHScans (Oficial)",
+        seriesLinkTitle: "Espadachín a Tiempo Completo",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Espadachín a Tiempo Completo",
+      chapterLabel: "Cap. 89",
+      confidence: 0.8,
+    });
+  });
+
+  it("falls back to the humanized url slug when no other source survives", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/",
+        documentTitle: "MHScans - MHScans (Oficial)",
+        siteName: "MHScans (Oficial)",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Espadachin a tiempo completo",
+      chapterLabel: "Cap. 89",
+      confidence: 0.7,
+    });
+  });
+
+  it("discards a branding-only title via the hostname when og:site_name is missing", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89/",
+        documentTitle: "MhScans",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      detected: true,
+      mangaName: "Espadachin a tiempo completo",
+    });
+  });
+
+  it("never uses a section segment as the series slug", () => {
+    const result = detectFromHeuristics(
+      signals({ url: "https://example.com/manga/capitulo-12/" }),
+    );
 
     expect(result).toEqual({ detected: false, reason: "no-title" });
   });
@@ -265,7 +400,9 @@ describe("detectFromHeuristics", () => {
 
 describe("cleanMangaName", () => {
   it("strips the site suffix after a pipe", () => {
-    expect(cleanMangaName("One Piece | Example Scan", "12")).toBe("One Piece");
+    expect(cleanMangaName("One Piece | Example Scan", "12", null)).toBe(
+      "One Piece",
+    );
   });
 
   it.each([
@@ -276,7 +413,7 @@ describe("cleanMangaName", () => {
     ["One Piece Chapter 12", "12", "One Piece"],
     ["One Piece Ch. 12", "12", "One Piece"],
   ])("removes the chapter fragment from %s", (raw, chapter, expected) => {
-    expect(cleanMangaName(raw, chapter)).toBe(expected);
+    expect(cleanMangaName(raw, chapter, null)).toBe(expected);
   });
 
   it.each([
@@ -290,12 +427,12 @@ describe("cleanMangaName", () => {
   ])(
     "drops the leading chapter prefix and connector in %s",
     (raw, chapter, expected) => {
-      expect(cleanMangaName(raw, chapter)).toBe(expected);
+      expect(cleanMangaName(raw, chapter, null)).toBe(expected);
     },
   );
 
   it("removes leftover separators around the chapter fragment", () => {
-    expect(cleanMangaName("One Piece - Capítulo 1100", "1100")).toBe(
+    expect(cleanMangaName("One Piece - Capítulo 1100", "1100", null)).toBe(
       "One Piece",
     );
   });
@@ -305,15 +442,80 @@ describe("cleanMangaName", () => {
       cleanMangaName(
         "Puedo Destruir los Mundos con un Cuchillo Carnicero Capitulo 1 manhwa - ManhwaWeb",
         "1",
+        null,
       ),
     ).toBe("Puedo Destruir los Mundos con un Cuchillo Carnicero");
   });
 
   it("does not treat word-internal 'ch' plus a number as a chapter fragment", () => {
-    expect(cleanMangaName("Punch 3 Deluxe", "3")).toBe("Punch 3 Deluxe");
+    expect(cleanMangaName("Punch 3 Deluxe", "3", null)).toBe("Punch 3 Deluxe");
   });
 
   it("keeps unrelated numbers intact", () => {
-    expect(cleanMangaName("Mob Psycho 100", "12")).toBe("Mob Psycho 100");
+    expect(cleanMangaName("Mob Psycho 100", "12", null)).toBe("Mob Psycho 100");
+  });
+
+  it("strips a leading reader verb confirmed by the url slug (lectorxd)", () => {
+    expect(
+      cleanMangaName(
+        "Leer Un Niño Criado Capítulo 56 Online",
+        "56",
+        "un-nio-criado",
+      ),
+    ).toBe("Un Niño Criado");
+  });
+
+  it("keeps a genuine title starting with a reader-verb word", () => {
+    expect(cleanMangaName("Read or Die Capítulo 5", "5", "read-or-die")).toBe(
+      "Read or Die",
+    );
+  });
+
+  it("does not strip a leading reader verb without url-slug evidence", () => {
+    expect(cleanMangaName("Leer Solo Leveling Capítulo 12", "12", null)).toBe(
+      "Leer Solo Leveling",
+    );
+  });
+
+  it("does not strip when the slug's first token disagrees", () => {
+    expect(
+      cleanMangaName("Leer Solo Leveling Capítulo 12", "12", "otra-cosa"),
+    ).toBe("Leer Solo Leveling");
+  });
+
+  it("strips a leading section word confirmed by the url slug (manhwa-latino)", () => {
+    expect(
+      cleanMangaName(
+        "MANGA Saikyou Degarashi Ouji no Anyaku Teii Arasoi Capítulo 38",
+        "38",
+        "saikyou-degarashi-ouji-no-anyaku-teii-arasoi",
+      ),
+    ).toBe("Saikyou Degarashi Ouji no Anyaku Teii Arasoi");
+  });
+
+  it("keeps a genuine title starting with a section word", () => {
+    expect(
+      cleanMangaName(
+        "Manga wo Yomeru Ore ga Sekai Saikyou Capítulo 3",
+        "3",
+        "manga-wo-yomeru-ore-ga-sekai-saikyou",
+      ),
+    ).toBe("Manga wo Yomeru Ore ga Sekai Saikyou");
+  });
+
+  it("strips a stacked reader verb plus section word in two passes", () => {
+    expect(
+      cleanMangaName(
+        "Leer Manga Solo Leveling Capítulo 12",
+        "12",
+        "solo-leveling",
+      ),
+    ).toBe("Solo Leveling");
+  });
+
+  it("does not strip a leading section word without url-slug evidence", () => {
+    expect(cleanMangaName("Manga Solo Leveling Capítulo 12", "12", null)).toBe(
+      "Manga Solo Leveling",
+    );
   });
 });
