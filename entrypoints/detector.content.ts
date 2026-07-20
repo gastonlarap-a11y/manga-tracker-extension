@@ -1,5 +1,10 @@
 import { browser, defineContentScript } from "#imports";
 import {
+  encodeBytesToBase64,
+  fetchCoverImageBytes,
+} from "@/utils/cover-capture";
+import {
+  findRenderedCoverElement,
   huntCover,
   isSeriesPath,
   matchLibraryEntry,
@@ -7,6 +12,7 @@ import {
 } from "@/utils/detection/cover-hunt";
 import { detectReading } from "@/utils/detection/detect";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
+import type { CoverHealStatus } from "@/utils/detection-log";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
 
 // SPAs swap content without reloading; wait for the page to settle before
@@ -81,10 +87,32 @@ export default defineContentScript({
           sourceUrl: url,
         },
       });
+      // The popup must be able to tell "detected" apart from "detected and
+      // saved" — a failed POST would otherwise vanish without a trace.
+      void sendRuntimeMessage({
+        kind: "report-delivery",
+        url,
+        delivery: recorded.ok
+          ? { status: "sent" }
+          : { status: "failed", error: recorded.error },
+      });
+      if (!recorded.ok) {
+        console.debug(
+          "[manga-tracker] record-event failed",
+          url,
+          recorded.error,
+        );
+      }
       if (recorded.ok) {
         lastReportedUrl = url;
-        if (recorded.data.manga.coverUrl === null) {
+        const manga = recorded.data.manga;
+        if (manga.coverUrl === null) {
           void attachCover(detection.mangaName, detection.chapterLabel, url);
+        } else if (!manga.hasStoredCover) {
+          // Heal pending cover bytes right where the user reads: a chapter
+          // page is same-site with its CDN, the one context every
+          // bot-protection admits.
+          void healCoverBytes(manga.id, manga.coverUrl, manga.canonicalName);
         }
       }
     }
@@ -125,9 +153,18 @@ export default defineContentScript({
           if (location.href !== url || url === lastCoverCheckUrl) {
             return;
           }
-          if (await tryCaptureCoverOnce()) {
-            lastCoverCheckUrl = url;
-            return;
+          try {
+            if (await tryCaptureCoverOnce()) {
+              lastCoverCheckUrl = url;
+              return;
+            }
+          } catch (cause) {
+            // A rejected runtime message must not kill the remaining
+            // attempts (or die silently).
+            console.info(
+              "[manga-tracker] cover capture attempt crashed",
+              cause,
+            );
           }
         }
         console.debug("[manga-tracker] cover capture gave up", url);
@@ -148,26 +185,143 @@ export default defineContentScript({
       );
       if (!entry) {
         console.debug(
-          "[manga-tracker] cover capture: no uncovered manga matches",
+          "[manga-tracker] cover capture: no pending manga matches",
           document.title,
         );
         return false;
       }
-      const coverUrl = pickSeriesPageCover(document, entry.canonicalName);
-      if (!coverUrl) {
-        console.debug(
-          "[manga-tracker] cover capture: no candidate image yet for",
-          entry.canonicalName,
+
+      let coverUrl = entry.coverUrl;
+      if (coverUrl === null) {
+        coverUrl = pickSeriesPageCover(document, entry.canonicalName);
+        if (!coverUrl) {
+          console.debug(
+            "[manga-tracker] cover capture: no candidate image yet for",
+            entry.canonicalName,
+          );
+          return false;
+        }
+        console.info("[manga-tracker] cover capture: sending", coverUrl);
+        const set = await sendRuntimeMessage({
+          kind: "set-cover",
+          mangaId: entry.id,
+          coverUrl,
+        });
+        if (!set.ok) {
+          return false;
+        }
+        // The background already attempted a byte fetch for the new URL;
+        // CDNs that block it fall through to the heal chain below.
+      }
+
+      return healCoverBytes(entry.id, coverUrl, entry.canonicalName);
+    }
+
+    // Byte heal for a cover whose CDN rejects the service worker's fetch
+    // (Cloudflare validates the browsing context): first a fetch from THIS
+    // page's own same-site context (full quality; works when the CDN allows
+    // CORS reads — manhwa-latino), else crop the rendered element out of the
+    // screen (mangasnosekai). Every outcome logs at info level AND lands in
+    // the per-tab detection log so the popup can explain a missing cover.
+    async function healCoverBytes(
+      mangaId: string,
+      coverUrl: string,
+      mangaName: string,
+    ): Promise<boolean> {
+      const url = location.href;
+      const report = (coverHeal: CoverHealStatus) => {
+        void sendRuntimeMessage({ kind: "report-cover-heal", url, coverHeal });
+      };
+      try {
+        const inPage = await fetchCoverImageBytes(coverUrl, fetch, "omit");
+        if (inPage) {
+          const uploaded = await sendRuntimeMessage({
+            kind: "upload-cover-bytes",
+            mangaId,
+            base64: encodeBytesToBase64(inPage.bytes),
+            contentType: inPage.contentType,
+          });
+          console.info(
+            "[manga-tracker] cover heal (in-page fetch)",
+            coverUrl,
+            uploaded,
+          );
+          if (uploaded.ok) {
+            report({ status: "healed" });
+            return true;
+          }
+        } else {
+          console.info(
+            "[manga-tracker] cover heal: in-page fetch failed (CORS/CDN)",
+            coverUrl,
+          );
+        }
+
+        const element = findRenderedCoverElement(document, coverUrl, mangaName);
+        if (!element) {
+          console.info(
+            "[manga-tracker] cover heal: no rendered cover element for",
+            mangaName,
+          );
+          report({
+            status: "failed",
+            error: "sin elemento de portada renderizado",
+          });
+          return false;
+        }
+        if (!(await ensureInViewport(element))) {
+          console.info(
+            "[manga-tracker] cover heal: cover element not in viewport",
+            mangaName,
+          );
+          report({
+            status: "failed",
+            error: "la portada no entra en el viewport",
+          });
+          return false;
+        }
+        const rect = element.getBoundingClientRect();
+        const captured = await sendRuntimeMessage({
+          kind: "capture-cover-pixels",
+          mangaId,
+          rect: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          },
+          dpr: window.devicePixelRatio,
+        });
+        console.info("[manga-tracker] cover heal (pixel capture)", captured);
+        report(
+          captured.ok
+            ? { status: "healed" }
+            : { status: "failed", error: captured.error },
         );
+        return captured.ok;
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        console.info("[manga-tracker] cover heal crashed", error);
+        report({ status: "failed", error });
         return false;
       }
-      console.debug("[manga-tracker] cover capture: sending", coverUrl);
-      void sendRuntimeMessage({
-        kind: "set-cover",
-        mangaId: entry.id,
-        coverUrl,
-      });
-      return true;
+    }
+
+    // captureVisibleTab only sees the viewport; scroll the cover into it and
+    // give the browser a beat to repaint before measuring the final rect.
+    async function ensureInViewport(element: Element): Promise<boolean> {
+      const fits = (rect: DOMRect) =>
+        rect.width > 0 &&
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= window.innerHeight &&
+        rect.right <= window.innerWidth;
+      if (fits(element.getBoundingClientRect())) {
+        return true;
+      }
+      element.scrollIntoView({ block: "center", inline: "center" });
+      await sleep(300);
+      return fits(element.getBoundingClientRect());
     }
 
     function sleep(ms: number): Promise<void> {

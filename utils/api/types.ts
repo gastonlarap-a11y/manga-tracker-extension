@@ -9,6 +9,10 @@ export interface MangaDto {
   canonicalName: string;
   normalizedSlug: string;
   coverUrl: string | null;
+  // Bumped on every cover mutation; clients cache-bust /cover with it.
+  coverVersion: number;
+  // True once cover bytes are stored locally; false = byte heal pending.
+  hasStoredCover: boolean;
   status: MangaStatus;
   tags: string[];
   createdAt: string;
@@ -41,6 +45,9 @@ export interface LibraryEntryDto {
   canonicalName: string;
   normalizedSlug: string;
   coverUrl: string | null;
+  coverVersion: number;
+  // True once cover bytes are stored locally; false = byte backfill pending.
+  hasStoredCover: boolean;
   status: MangaStatus;
   tags: string[];
   reachedChapter: { number: number; label: string } | null;

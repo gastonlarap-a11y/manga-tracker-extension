@@ -23,6 +23,8 @@ const createEventResponse: CreateEventResponse = {
     canonicalName: "One Piece",
     normalizedSlug: "one-piece",
     coverUrl: null,
+    coverVersion: 0,
+    hasStoredCover: false,
     status: "reading",
     tags: [],
     createdAt: "2026-07-16T12:00:00.000Z",

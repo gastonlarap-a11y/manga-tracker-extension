@@ -47,6 +47,23 @@ export function setMangaCover(
   });
 }
 
+// Cover bytes captured in the browser (the only client Cloudflare-walled
+// CDNs admit); the backend stores them and serves /cover from local bytes.
+export function uploadMangaCoverImage(
+  mangaId: string,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<ApiResult<MangaDto>> {
+  return request<MangaDto>(
+    `/api/mangas/${encodeURIComponent(mangaId)}/cover-image`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: bytes,
+    },
+  );
+}
+
 // Upsert by domain: recalibrating a site replaces its stored adapter.
 export function createAdapter(
   body: CreateAdapterBody,

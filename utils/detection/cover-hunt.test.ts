@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryEntryDto } from "../api/types";
 import {
   coverFromSeriesDocument,
+  findRenderedCoverElement,
   findSeriesLink,
   huntCover,
   isSeriesPath,
@@ -131,6 +132,8 @@ function libraryEntry(overrides: Partial<LibraryEntryDto>): LibraryEntryDto {
     canonicalName: NAME,
     normalizedSlug: "de-duende-a-dios-goblin",
     coverUrl: null,
+    coverVersion: 0,
+    hasStoredCover: false,
     status: "reading",
     tags: [],
     reachedChapter: null,
@@ -165,20 +168,117 @@ describe("matchLibraryEntry", () => {
     expect(matchLibraryEntry(entries, pageText)?.id).toBe("m2");
   });
 
-  it("skips entries that already have a cover", () => {
+  it("skips entries whose cover bytes are already stored", () => {
     const entries = [
       libraryEntry({
         id: "m2",
         canonicalName: "Carnicero Marcial",
         coverUrl: "https://cdn.example.com/covers/carnicero.webp",
+        hasStoredCover: true,
       }),
     ];
 
     expect(matchLibraryEntry(entries, pageText)).toBeNull();
   });
 
+  it("matches an entry with a cover url whose bytes are still pending", () => {
+    const entries = [
+      libraryEntry({
+        id: "m2",
+        canonicalName: "Carnicero Marcial",
+        coverUrl: "https://zai.manhwa-latino.com/covers/carnicero.webp",
+        hasStoredCover: false,
+      }),
+    ];
+
+    expect(matchLibraryEntry(entries, pageText)?.id).toBe("m2");
+  });
+
   it("returns null when no name overlaps the page text", () => {
     expect(matchLibraryEntry([libraryEntry({})], "Otra cosa")).toBeNull();
+  });
+});
+
+describe("findRenderedCoverElement", () => {
+  function appendCover(src: string, width: number, height: number) {
+    const img = document.createElement("img");
+    img.setAttribute("src", src);
+    setNaturalSize(img, width, height);
+    document.body.append(img);
+    return img;
+  }
+
+  it("matches a downsized -WxH variant of the stored cover url (manhwa-latino)", () => {
+    const img = appendCover(
+      "https://zai.manhwa-latino.com/wp-content/uploads/2024/07/thumb_6684b05a6d24e-110x150.webp",
+      110,
+      150,
+    );
+
+    expect(
+      findRenderedCoverElement(
+        document,
+        "https://zai.manhwa-latino.com/wp-content/uploads/2024/07/thumb_6684b05a6d24e.webp",
+        NAME,
+      ),
+    ).toBe(img);
+  });
+
+  it("matches the suffixless base when the stored url carries the size (mangasnosekai)", () => {
+    const img = appendCover(
+      "https://imagenes.mangasnosekai.com/2024/09/001.png",
+      940,
+      1350,
+    );
+
+    expect(
+      findRenderedCoverElement(
+        document,
+        "https://imagenes.mangasnosekai.com/2024/09/001-714x1024.png",
+        NAME,
+      ),
+    ).toBe(img);
+  });
+
+  it("prefers the largest rendered variant over a small thumb", () => {
+    appendCover("https://cdn.example.com/covers/abc-110x150.webp", 110, 150);
+    const hero = appendCover(
+      "https://cdn.example.com/covers/abc.webp",
+      940,
+      1350,
+    );
+
+    expect(
+      findRenderedCoverElement(
+        document,
+        "https://cdn.example.com/covers/abc.webp",
+        NAME,
+      ),
+    ).toBe(hero);
+  });
+
+  it("never falls back to an unrelated portrait when the cover url is known", () => {
+    // A sidebar cover of ANOTHER manga: portrait, big enough, name-agnostic.
+    appendCover("https://cdn.example.com/covers/otro-manga.webp", 200, 300);
+
+    expect(
+      findRenderedCoverElement(
+        document,
+        "https://cdn.example.com/covers/abc.webp",
+        NAME,
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the series-page pick when no cover url is known yet", () => {
+    const img = appendCover(
+      "https://cdn.example.com/covers/duende.webp",
+      300,
+      450,
+    );
+    img.setAttribute("alt", NAME);
+
+    expect(findRenderedCoverElement(document, null, NAME)).toBe(img);
   });
 });
 

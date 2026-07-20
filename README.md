@@ -61,6 +61,9 @@ utils/
 ├─ detection/           → pure pipeline: page signals → adapter/heuristics → confidence
 ├─ detection/cover-hunt.ts → three-level hunt for the real manga cover on series pages
 ├─ calibration.ts       → selector generation for the overlay (round-trip validated)
+├─ base-domain.ts       → base-domain wildcard patterns for per-site permissions
+├─ cover-capture.ts     → cover byte download in the browser (Cloudflare-walled CDNs)
+├─ cover-pixels.ts      → screenshot-crop fallback when even the browser fetch is blocked
 ├─ detection-log.ts     → last detection per tab (in-memory); feeds the popup diagnosis
 ├─ messages.ts          → typed runtime messages (popup/content ↔ background)
 ├─ message-handler.ts   → background business logic (routes/service split)

@@ -82,6 +82,25 @@ describe("registerSite", () => {
 
     expect(result).toEqual({ ok: false, error: "Invalid match pattern" });
   });
+
+  it("treats a base-domain wildcard pattern as an opaque origin", async () => {
+    getRegisteredMock.mockResolvedValue([]);
+    registerMock.mockResolvedValue(undefined);
+    executeScriptMock.mockResolvedValue([]);
+
+    const result = await registerSite("https://*.manhwa-latino.com/*", 4);
+
+    expect(registerMock).toHaveBeenCalledWith([
+      {
+        id: "detector:https://*.manhwa-latino.com/*",
+        matches: ["https://*.manhwa-latino.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+    expect(result).toEqual({ ok: true, data: null });
+  });
 });
 
 describe("syncRegisteredSites", () => {
