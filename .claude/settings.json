@@ -3,6 +3,11 @@
     "ux@dev-plugins": true,
     "typescript-lsp@claude-plugins-official": false
   },
+  "sandbox": {
+    "network": {
+      "allowLocalBinding": true
+    }
+  },
   "permissions": {
     "allow": [
       "Bash(bun run test)",

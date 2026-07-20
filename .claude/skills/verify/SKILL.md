@@ -5,10 +5,10 @@ description: Verify an extension change end-to-end (tests, build, reload in the 
 
 # Verify
 
-1. Run the suite: `bun run test` (vitest; ~141 tests as of phase 8 + covers).
-   Under the harness sandbox this fails with `GetPortError` — WXT reserves a dev-server
-   port while resolving its config. Run it outside the sandbox (or manage an exception
-   via `/sandbox`); the failure is not a test failure.
+1. Run the suite: `bun run test` (vitest; ~161 tests as of the series-link/branding-discard fix).
+   Runs fine inside the harness sandbox: `sandbox.network.allowLocalBinding` in
+   `.claude/settings.json` covers the dev-server port WXT reserves while resolving
+   its config (a `GetPortError` here means that setting was removed).
 2. Build: `bun run build` → must produce `.output/chrome-mv3/` with no errors.
 3. Backend up: `curl http://localhost:5150/health` → expect HTTP 200. If it is down,
    detection events cannot be verified; say so instead of skipping silently.
