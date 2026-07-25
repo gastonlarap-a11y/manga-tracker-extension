@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing";
 import {
+  ensureDetectorRegistered,
   injectDetectorIntoOpenTabs,
   registerSite,
   syncRegisteredSites,
@@ -79,6 +80,108 @@ describe("registerSite", () => {
     registerMock.mockRejectedValue(new Error("Invalid match pattern"));
 
     const result = await registerSite("bad-pattern", 4);
+
+    expect(result).toEqual({ ok: false, error: "Invalid match pattern" });
+  });
+
+  it("treats a base-domain wildcard pattern as an opaque origin", async () => {
+    getRegisteredMock.mockResolvedValue([]);
+    registerMock.mockResolvedValue(undefined);
+    executeScriptMock.mockResolvedValue([]);
+
+    const result = await registerSite("https://*.manhwa-latino.com/*", 4);
+
+    expect(registerMock).toHaveBeenCalledWith([
+      {
+        id: "detector:https://*.manhwa-latino.com/*",
+        matches: ["https://*.manhwa-latino.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+    expect(result).toEqual({ ok: true, data: null });
+  });
+});
+
+describe("ensureDetectorRegistered", () => {
+  it("restores a registration wiped by an extension reload and runs it on the tab", async () => {
+    getRegisteredMock.mockResolvedValue([]);
+    registerMock.mockResolvedValue(undefined);
+    executeScriptMock.mockResolvedValue([]);
+
+    const result = await ensureDetectorRegistered(
+      ["https://olympusxyz.com/*", "https://*.olympusxyz.com/*"],
+      7,
+    );
+
+    expect(registerMock).toHaveBeenCalledWith([
+      {
+        id: "detector:https://olympusxyz.com/*",
+        matches: ["https://olympusxyz.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+      {
+        id: "detector:https://*.olympusxyz.com/*",
+        matches: ["https://*.olympusxyz.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+    expect(executeScriptMock).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ["/content-scripts/detector.js"],
+    });
+    expect(result).toEqual({ ok: true, data: { repaired: true } });
+  });
+
+  it("registers only the patterns that are missing", async () => {
+    getRegisteredMock.mockResolvedValue([
+      { id: "detector:https://olympusxyz.com/*" },
+    ]);
+    registerMock.mockResolvedValue(undefined);
+    executeScriptMock.mockResolvedValue([]);
+
+    const result = await ensureDetectorRegistered(
+      ["https://olympusxyz.com/*", "https://*.olympusxyz.com/*"],
+      7,
+    );
+
+    expect(registerMock).toHaveBeenCalledWith([
+      {
+        id: "detector:https://*.olympusxyz.com/*",
+        matches: ["https://*.olympusxyz.com/*"],
+        js: ["/content-scripts/detector.js"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+    expect(result).toEqual({ ok: true, data: { repaired: true } });
+  });
+
+  it("does not re-inject when every pattern is already registered", async () => {
+    getRegisteredMock.mockResolvedValue([
+      { id: "detector:https://olympusxyz.com/*" },
+    ]);
+
+    const result = await ensureDetectorRegistered(
+      ["https://olympusxyz.com/*"],
+      7,
+    );
+
+    expect(registerMock).not.toHaveBeenCalled();
+    expect(executeScriptMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, data: { repaired: false } });
+  });
+
+  it("surfaces repair failures instead of reporting a healthy site", async () => {
+    getRegisteredMock.mockResolvedValue([]);
+    registerMock.mockRejectedValue(new Error("Invalid match pattern"));
+
+    const result = await ensureDetectorRegistered(["bad-pattern"], 7);
 
     expect(result).toEqual({ ok: false, error: "Invalid match pattern" });
   });

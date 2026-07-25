@@ -10,6 +10,12 @@ function scriptId(originPattern: string): string {
   return `${DETECTOR_ID_PREFIX}${originPattern}`;
 }
 
+// repaired: the registration was missing and has just been restored — the
+// popup uses it to tell a healthy site from one it had to fix.
+export interface DetectorRepair {
+  repaired: boolean;
+}
+
 type DetectorRegistration = Parameters<
   typeof browser.scripting.registerContentScripts
 >[0][number];
@@ -50,6 +56,44 @@ export async function registerSite(
       ok: false,
       error:
         cause instanceof Error ? cause.message : "Site registration failed",
+    };
+  }
+}
+
+// A granted host permission does NOT imply a live content-script registration:
+// reloading or updating the extension wipes the registrations while the
+// permissions survive (see syncRegisteredSites). The popup calls this so
+// "tracked" means permission AND registration, repairing the gap on the spot
+// instead of leaving a site that looks tracked but never detects anything.
+export async function ensureDetectorRegistered(
+  originPatterns: string[],
+  tabId: number,
+): Promise<ApiResult<DetectorRepair>> {
+  try {
+    const existing = await browser.scripting.getRegisteredContentScripts({
+      ids: originPatterns.map(scriptId),
+    });
+    const live = new Set(existing.map((script) => script.id));
+    const missing = originPatterns.filter(
+      (originPattern) => !live.has(scriptId(originPattern)),
+    );
+    if (missing.length === 0) {
+      // Already registered: injecting again would double the detector on every
+      // popup open.
+      return { ok: true, data: { repaired: false } };
+    }
+    await browser.scripting.registerContentScripts(
+      missing.map(detectorRegistration),
+    );
+    await browser.scripting.executeScript({
+      target: { tabId },
+      files: [DETECTOR_SCRIPT],
+    });
+    return { ok: true, data: { repaired: true } };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: cause instanceof Error ? cause.message : "Detector repair failed",
     };
   }
 }

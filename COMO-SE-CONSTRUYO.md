@@ -763,12 +763,180 @@ Costo en régimen: cero — en cuanto ningún manga de la biblioteca está sin p
 no-SPA no cambian: sus portadas ya llegaron por los niveles 1–3 con el primer
 capítulo leído.
 
+### 11h. Sitios con el SEO roto: la señal series-link y los fallos que ya no son mudos
+
+Caso real: mhscans.com (tema **Madara/WP-Manga**, la familia de sitios WordPress de
+manga más común). El usuario le dio a "Trackear este sitio" en un capítulo y…
+nada — ni en el popup ni en el dashboard. El diagnóstico fue con evidencia, no con
+hipótesis: la DB de producción tenía **cero** eventos de mhscans (el POST nunca
+llegó), y el HTML crudo de la página mostró el porqué profundo: `<title>`,
+`og:title` y `twitter:title` valen los tres "MHScans - MHScans (Oficial)" (branding
+puro) y la página del capítulo **no tiene `<h1>`**. El nombre real de la serie solo
+existe en el breadcrumb y en el slug de la URL
+(`/series/espadachin-a-tiempo-completo/capitulo-89-pack/`). Con las heurísticas de
+entonces eso era doblemente malo: la detección PASABA (og:title existe → 0.80) pero
+con `mangaName` basura — y como el API dedupea por slug normalizado, TODOS los
+mangas del sitio habrían colapsado en una única serie fantasma llamada como el
+sitio.
+
+Dos arreglos genéricos (ningún selector específico de mhscans):
+
+- **Señal `seriesLinkTitle`** (`page-signals.ts` + `utils/detection/text.ts`): las
+  URLs de capítulo suelen anidar bajo la ficha (`/series/<slug>/<capítulo>`), y
+  alguna ancla de la página (el breadcrumb, el header del lector) apunta a ese path
+  padre llevando el nombre de la serie. La regla: ancla del mismo origen cuyo
+  pathname es **prefijo propio** del pathname actual, y cuyo texto hace round-trip
+  contra el slug de su propio href (`tokensRoughlyMatch`: minúsculas, sin acentos,
+  tokens compartidos ≥ mitad). Ese round-trip es lo que descarta "Ver todos los
+  capítulos" y deja pasar "Espadachín a Tiempo Completo" — con acentos perfectos,
+  algo que el slug nunca puede dar. Alternativas rechazadas: parsear
+  `og:description` (formato demasiado del tema) o selectores `.breadcrumb` (eso es
+  exactamente un fix por-sitio, lo que este proyecto no quiere).
+- **Descarte de branding + fallback `url-slug`** (`heuristics.ts`): un título cuyos
+  tokens son todos ⊆ (tokens de `og:site_name` + labels del hostname) es identidad
+  del sitio, no un manga — se descarta como fuente. Y si ninguna fuente sobrevive,
+  el segmento del path anterior al marcador de capítulo (filtrado contra
+  stopwords `series/manga/leer/…` y contra ids numéricos) se humaniza como último
+  recurso. Pesos: `series-link` 35 (como og → 0.80) y `url-slug` 25 (0.70, JUSTO el
+  umbral: el nombre es correcto pero viene sin acentos ni mayúsculas — suficiente
+  para guardar, no para presumir).
+
+La segunda capa del bug era peor que la primera: **el silencio**. Tres caminos
+terminaban en "no pasó nada" sin dejar rastro: el diálogo de permisos de Chrome
+cerrado sin aceptar (`enableTracking` retornaba mudo), un `record-event` fallido
+(no había rama `else`), y los 400 del API (que no se loguean). De ahí:
+
+- mensaje `report-delivery` nuevo: tras el POST, el content script informa
+  `{ status: "sent" } | { status: "failed", error }` y `detection-log` lo fusiona en
+  la entrada de la pestaña (guard por URL para no etiquetar una página ya
+  abandonada). El popup ahora distingue "Detectado … — guardado." de "— pero el
+  guardado falló: <error>".
+- estado `permission-denied` en el popup, con botón de reintento, cuando
+  `permissions.request` no concede.
+
+La verificación tuvo dos niveles: el pipeline ejecutado contra el **HTML real
+descargado** del capítulo (detección exacta: "Espadachín a Tiempo Completo",
+Cap. 89, 0.80) y el sitio en vivo — el primer manga guardado desde mhscans entró
+con nombre acentuado perfecto y portada. Lecciones: (1) los metadatos de un sitio
+pueden mentir en bloque, pero la estructura de sus URLs y las anclas que hacen
+round-trip contra ella no — las señales estructurales sobreviven donde el SEO
+muere; (2) un fallo que no deja rastro cuesta más que el bug que lo causó: el
+evento perdido se arregló una vez, la observabilidad evita el próximo diagnóstico
+a ciegas.
+
 ---
 
-## 12. Cómo se prueba y se opera
+## 12. Paso 12 — Migraciones de sitio sin perder el historial (commit `25077d1`)
+
+El detonante fue la vida real del lector de manga: los sitios borran capítulos y
+uno migra a otro sitio. El usuario siguió "Un Niño Criado por un Rey Demonio…" en
+`lectorxd.com` (el sitio anterior eliminó los capítulos) y el tracker lo ignoró:
+`/manhua/<slug>/leer/56` no matcheaba ningún patrón de capítulo, y el patrón de
+rutas de lector estaba anclado al inicio del path (estilo manhwaweb `/leer/…`).
+Peor: aunque hubiera detectado, el `og:title` real era
+`"Leer <Título> Capítulo 56 Online | Lector XD"` — la limpieza quitaba la cola
+pero no el "Leer " inicial, y como el API dedupea por slug del título, el evento
+habría **forkeado un manga duplicado** en vez de continuar el historial del cap. 55.
+El backend no tenía culpa: su matching por slug normalizado es independiente del
+dominio y la migración de servidor está soportada por diseño.
+
+### heuristics.ts — el gate de URL y la limpieza con evidencia
+
+- Nuevo patrón en `CHAPTER_URL_PATTERNS` (al final, para que `cap/chapter/ch/c`
+  conserven prioridad): segmento lector + número
+  (`/(?:leer|lector|ver|read|reader|viewer)(?:_\w+)?[/-]<n>`). manhwaweb no se
+  inmuta: tras su `/leer/` viene un slug, no un número.
+- `READER_PATH_PATTERN` desanclado: el segmento lector vale en cualquier posición
+  (`/manga/<slug>/leer/<id>`); los catálogos que ahora pasan el gate mueren después
+  en `no-chapter-in-title`, así que el guard de auto-envío no se debilitó.
+- `stripLeadingSlugConfirmedPrefix`: quita verbos de lector ("Leer/Ver/Read") y
+  palabras de sección ("MANGA/MANHWA/…" — manhwa-latino antepone "MANGA " al
+  título) SOLO cuando el primer token de lo que queda coincide con el primer token
+  del slug de la URL. "Read or Die" (slug `read-or-die`) y "Manga wo Yomeru…"
+  (slug `manga-wo-yomeru…`) sobreviven intactos; dos pasadas cubren "Leer Manga X".
+  Alternativa rechazada: strip-list ciega — rompía exactamente esos títulos.
+
+### El arreglo de datos — cuando el fix de código no basta
+
+El registro ya guardado era `"MANGA Saikyou…"` con slug `manga-saikyou-…`: con el
+código arreglado, el siguiente evento limpio habría forkeado igual. Y de hecho
+forkeó (el usuario leyó antes del arreglo de datos): quedaron dos filas con el
+mismo cap. 38. La fusión usó las vías sancionadas donde existían — `DELETE
+/api/mangas/{id}` para el fork, `PUT` para el rename — y un único `UPDATE` SQL
+para el `normalizedSlug`, que el API nunca toca por diseño. Lección: un fix de
+normalización tiene dos mitades, el código para el futuro y los datos para el
+pasado, y el ORDEN importa (código cargado ANTES de tocar los datos, o el propio
+fix re-crea la basura).
+
+---
+
+## 13. Paso 13 — La saga de los bytes de portada (commit `b1cf4d8` + API y dashboard)
+
+Dos portadas no aparecían en el dashboard pese a que la captura había funcionado:
+`Manga.coverUrl` correcto en la DB, y el proxy del backend (que suplanta el
+Referer) devolviendo 404. La investigación con `curl` cerró el caso: esos CDNs
+(`zai.manhwa-latino.com`, `imagenes.mangasnosekai.com`) están tras la detección de
+bots de Cloudflare y devuelven **403 a cualquier cliente que no sea un navegador
+real** — con User-Agent y Referer perfectos da igual; validan la huella TLS del
+cliente. El diseño "guardar la URL y proxear" tiene un techo que ningún header
+salta. La decisión (filosofía local-first): **capturar los bytes donde sí se
+puede — el navegador del usuario — y guardarlos en la DB para siempre**.
+
+### La cadena de captura, de mejor a peor calidad
+
+1. **Fetch del service worker** (CDNs normales): con el permiso ampliado al
+   dominio base (`*.manhwa-latino.com` cubre a su CDN `zai.…`), y con guard de
+   permisos para no ensuciar la consola con errores CORS predecibles.
+   Verificado en vivo que Cloudflare TAMBIÉN lo bloquea (403 con y sin cookies):
+   la huella del contexto de navegación no se falsifica desde un worker.
+2. **Fetch in-page del content script**: la página del capítulo/ficha es
+   same-site con su CDN — Sec-Fetch-Site, Referer y cookies reales. Cloudflare lo
+   deja pasar; si el CDN además permite lectura CORS (manhwa-latino sí), salen los
+   bytes a calidad completa, viajan en base64 por runtime message y el background
+   los sube. mangasnosekai no manda ACAO → siguiente nivel.
+3. **Recorte de píxeles**: `captureVisibleTab` + crop del elemento renderizado
+   (OffscreenCanvas, escala por devicePixelRatio, WebP). Lo que la pantalla ya
+   muestra no lo puede bloquear nadie. Dos refinamientos que salieron de páginas
+   reales: el elemento se localiza por **variantes de tamaño** del asset
+   (WordPress renderiza `thumb_X-110x150.webp` de una URL guardada `thumb_X.webp`,
+   o la base `001.png` de una guardada `001-714x1024.png`), y con URL conocida
+   NUNCA se recorta por "portrait más grande" — en fichas con sidebar eso habría
+   guardado la portada de OTRO manga.
+4. **Proxy multi-referer con persistencia** (backend): tras una migración, la
+   portada suele vivir en el CDN del sitio ANTERIOR, que solo acepta su propio
+   Referer — y el proxy usaba el del evento más reciente (el sitio nuevo). Ahora
+   recorre los referers de TODOS los sitios donde se leyó el manga y, al acertar,
+   **persiste los bytes**: cada portada se pide al CDN una única vez en la vida.
+
+La curación corre donde el usuario realmente navega: tras registrar cada capítulo
+(si `hasStoredCover` es false), al visitar una ficha renderizada, y un backfill
+por sesión al arrancar. El dashboard bustea la caché con `coverVersion` (que
+además destraba su "failedSrc recordado": los bytes pueden llegar DESPUÉS de que
+la imagen fallara una vez).
+
+### Lecciones de una depuración a ciegas
+
+- **La consola del content script es invisible para casi todos**: `console.debug`
+  se oculta por defecto en DevTools, el mundo aislado no se ve desde herramientas
+  que inyectan en el main world, y un `sendResponse` nunca llamado mata la promesa
+  del otro lado sin dejar rastro. El cierre fue triple: logs de resultado a
+  `console.info`, sin huecos (también cuando un paso falla), try/catch por intento
+  del loop, y el resultado de la curación reportado al diagnóstico por pestaña —
+  el popup ahora dice "Portada guardada ✓" o "Portada pendiente: <motivo>".
+- **Las pestañas en segundo plano no sirven para probar**: Chromium estrangula sus
+  timers (el ciclo de captura ni corre) y `captureVisibleTab` exige pestaña
+  activa y visible. Toda verificación en vivo de esta cadena es con la pestaña
+  enfocada.
+- **La red del main world sí delata al content script**: sus fetch aparecen en
+  `performance.getEntriesByType("resource")` — así se confirmó qué build corría y
+  qué nivel de la cadena se ejecutaba, sin acceso a la consola aislada.
+
+---
+
+## 14. Cómo se prueba y se opera
 
 - **Gates** (siempre los tres antes de dar algo por terminado): `bun run lint`,
-  `bun run typecheck`, `bun run test`. Hoy: 103 tests en 9 archivos.
+  `bun run typecheck`, `bun run test`. Hoy: 221 tests en 13 archivos.
 - **Estructura de tests:** colocados junto a lo que prueban. Los puros (heurística) no
   necesitan entorno; los de DOM usan happy-dom; los de `browser.*` usan `fakeBrowser` de
   `wxt/testing` (con `fakeBrowser.reset()` en `beforeEach`) y stubs para los namespaces
@@ -783,7 +951,7 @@ capítulo leído.
 
 ---
 
-## 13. Recetario: cómo repetir esto en otro proyecto
+## 15. Recetario: cómo repetir esto en otro proyecto
 
 1. **Elegí el framework re-validando el ecosistema HOY** (CLI, artefactos generados,
    HMR, soporte de tu runtime), no con lo que decía un plan viejo. Commiteá el template

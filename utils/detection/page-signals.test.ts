@@ -15,9 +15,13 @@ describe("collectPageSignals", () => {
     document.head.innerHTML = `
       <meta property="og:title" content="OG title" />
       <meta name="twitter:title" content="Twitter title" />
+      <meta property="og:site_name" content="Example Scan" />
     `;
     document.title = "Doc title";
-    document.body.innerHTML = "<h1>Heading title</h1>";
+    document.body.innerHTML = `
+      <h1>Heading title</h1>
+      <a href="https://example.com/one-piece/">One Piece</a>
+    `;
 
     expect(collectPageSignals(document, URL_UNDER_TEST)).toEqual({
       url: URL_UNDER_TEST,
@@ -25,6 +29,8 @@ describe("collectPageSignals", () => {
       ogTitle: "OG title",
       twitterTitle: "Twitter title",
       firstHeading: "Heading title",
+      siteName: "Example Scan",
+      seriesLinkTitle: "One Piece",
     });
   });
 
@@ -37,6 +43,61 @@ describe("collectPageSignals", () => {
     expect(signals.ogTitle).toBeNull();
     expect(signals.twitterTitle).toBeNull();
     expect(signals.firstHeading).toBe("Second heading");
+    expect(signals.siteName).toBeNull();
+    expect(signals.seriesLinkTitle).toBeNull();
+  });
+});
+
+describe("series link signal", () => {
+  const CHAPTER_URL =
+    "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/";
+
+  it("finds the breadcrumb anchor whose href prefixes the chapter path", () => {
+    document.body.innerHTML = `
+      <ol>
+        <li><a href="https://mhscans.com/">Home</a></li>
+        <li><a href="https://mhscans.com/manga/">All Mangas</a></li>
+        <li>
+          <a href="https://mhscans.com/series/espadachin-a-tiempo-completo/">
+            Espadachín a Tiempo Completo
+          </a>
+        </li>
+      </ol>
+      <a href="https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-88/">
+        Capítulo 88
+      </a>
+    `;
+
+    expect(collectPageSignals(document, CHAPTER_URL).seriesLinkTitle).toBe(
+      "Espadachín a Tiempo Completo",
+    );
+  });
+
+  it("resolves relative hrefs against the page url", () => {
+    document.body.innerHTML =
+      '<a href="/series/espadachin-a-tiempo-completo/">Espadachín a Tiempo Completo</a>';
+
+    expect(collectPageSignals(document, CHAPTER_URL).seriesLinkTitle).toBe(
+      "Espadachín a Tiempo Completo",
+    );
+  });
+
+  it("rejects anchors whose text does not round-trip against their slug", () => {
+    document.body.innerHTML =
+      '<a href="/series/espadachin-a-tiempo-completo/">Ver todos los capítulos</a>';
+
+    expect(
+      collectPageSignals(document, CHAPTER_URL).seriesLinkTitle,
+    ).toBeNull();
+  });
+
+  it("ignores cross-origin anchors", () => {
+    document.body.innerHTML =
+      '<a href="https://other.com/series/espadachin-a-tiempo-completo/">Espadachín a Tiempo Completo</a>';
+
+    expect(
+      collectPageSignals(document, CHAPTER_URL).seriesLinkTitle,
+    ).toBeNull();
   });
 });
 

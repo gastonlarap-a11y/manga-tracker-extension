@@ -1,3 +1,9 @@
+---
+paths:
+  - "**/*.ts"
+  - "**/*.tsx"
+---
+
 # TypeScript rules
 - No `any`: use `unknown` plus narrowing, or a proper type. `as` casts need a comment
   justifying them.

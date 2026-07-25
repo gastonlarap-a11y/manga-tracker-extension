@@ -19,12 +19,23 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   - `utils/detection-log.ts` — last detection per tab (in-memory), feeds the popup diagnosis
   - `utils/calibration.ts` — selector generation for the overlay (@medv/finder,
     round-trip validated)
+  - covers — `detection/cover-hunt.ts` (hunt over the page), `cover-capture.ts` (byte fetch
+    in the worker), `cover-pixels.ts` (screenshot + crop), `base-domain.ts` (permission is
+    granted per base domain: cover CDNs live on sibling subdomains)
 - `wxt.config.ts` — manifest definition (permissions, fixed `key` for the stable id)
 - `.wxt/` — generated types (`wxt prepare`); never edit, gitignored
-- `.output/` — build output; `chrome-mv3-dev/` (dev) and `chrome-mv3/` (build), gitignored
+- `.output/` — build output; `chrome-mv3-dev/` (dev) and `chrome-mv3/` (build), gitignored.
+  `wxt build` wipes this directory, so the browser never loads from here: `bun run
+  install:local` syncs it into `~/Library/Application Support/MangaTracker/extension/`,
+  which is the path loaded unpacked
 
 ## Commands
 - Test: `bun run test` (vitest, not `bun test`) · Single test: `bunx vitest run <file>`
+- Lint: `bun run lint` · Format: `bun run format` · Typecheck: `bun run typecheck`
+- Dev: `bun run dev` (HMR into `.output/chrome-mv3-dev/`) · Build: `bun run build`
+
+> `typescript@7` is the native compiler (tsgo) — there is no `tsserver.js`, which is why
+> `typescript-lsp@claude-plugins-official` stays disabled in `.claude/settings.json`.
 
 ## Rules
 - **Contract duplication**: `utils/api/types.ts` mirrors the API's Zod schemas by hand.
@@ -42,6 +53,13 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - Detection never auto-sends below the 0.7 confidence threshold, and a page without a
   chapter marker in its URL (catalog/home pages) is never reported.
 - Never edit `.wxt/**` or `.output/**`; never commit `.env*` or `*.pem`.
+
+## Architecture
+- `utils/detection/*` is pure (no `browser.*`, no `#imports`) — that is what makes the
+  pipeline testable; effects live in `background.ts` / `message-handler.ts`.
+- Cover resolution degrades level by level (`og:image` → hunt over the page → byte fetch in
+  the worker → screenshot + crop): every level returns `null` on failure and detection
+  carries on unaffected.
 
 ## Engineering standards
 - Every feature ships with its tests (vitest; fake-browser via `wxt/testing` for

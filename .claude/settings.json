@@ -3,6 +3,11 @@
     "ux@dev-plugins": true,
     "typescript-lsp@claude-plugins-official": false
   },
+  "sandbox": {
+    "network": {
+      "allowLocalBinding": true
+    }
+  },
   "permissions": {
     "allow": [
       "Bash(bun run test)",
@@ -10,6 +15,8 @@
       "Bash(bun run typecheck)",
       "Bash(bun run format)",
       "Bash(bun run build)",
+      "Bash(bun run zip)",
+      "Bash(bun install:*)",
       "Bash(bunx vitest run *)"
     ],
     "ask": ["Bash(git push *)"],

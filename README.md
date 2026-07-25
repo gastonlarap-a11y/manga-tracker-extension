@@ -34,17 +34,35 @@ bun install   # also runs `wxt prepare` (generates .wxt/ types)
 | `bun run lint` | Lint and check formatting with Biome |
 | `bun run format` | Fix lint issues and format with Biome |
 | `bun run typecheck` | Type-check with `tsc --noEmit` |
+| `bun run install:local` | Build, then sync it into the stable install directory the browser loads |
+| `bun run dev:firefox` / `build:firefox` / `zip:firefox` | Same three, targeting Firefox (`-b firefox`) |
 
 ## Loading the extension (unpacked)
 
-1. Run `bun run dev` (or `bun run build` for the production output).
+**Never load unpacked straight from `.output/`.** WXT wipes that directory
+(`rm -rf` + recreate) at the start of every `wxt build` and every `wxt dev` startup, and
+there is no flag to disable it. Chromium tracks unpacked extensions *by path* and does not
+watch their contents, so a build that lands while the browser reads that path makes it drop
+the extension — it disappears from the list and has to be loaded again by hand.
+
+Load it from a stable directory instead:
+
+1. Run `bun run install:local`. It builds and then syncs the output into
+   `~/Library/Application Support/MangaTracker/extension/` (next to the backend's database).
+   The sync uses `rsync --delete-after`, so that directory always holds a complete,
+   loadable extension — it is never emptied, not even for an instant.
 2. Open `chrome://extensions` (Chrome) or `brave://extensions` (Brave), enable
-   **Developer mode**, click **Load unpacked** and pick `.output/chrome-mv3-dev/`
-   (dev) or `.output/chrome-mv3/` (build).
+   **Developer mode**, click **Load unpacked** and pick that directory. You only do this
+   once; afterwards `bun run install:local` + **Reload** on the extension card is enough.
 3. The extension id is pinned to `cfjiinlnepkmlaafdclmlpjbmpofplop` via the fixed
-   `key` in the manifest — the backend's CORS allowlist depends on it staying stable.
+   `key` in the manifest, so it does not depend on where the directory lives — the
+   backend's CORS allowlist keeps working.
 4. If Chrome asks for the **Local network access** permission on the first request
    to `localhost`, grant it once.
+
+For iterative work `bun run dev` and `.output/chrome-mv3-dev/` are still fine: WXT's
+incremental rebuilds do not wipe the directory (only the initial `wxt dev` startup does),
+and its own runner handles reloading.
 
 ## Project structure
 
@@ -61,6 +79,9 @@ utils/
 ├─ detection/           → pure pipeline: page signals → adapter/heuristics → confidence
 ├─ detection/cover-hunt.ts → three-level hunt for the real manga cover on series pages
 ├─ calibration.ts       → selector generation for the overlay (round-trip validated)
+├─ base-domain.ts       → base-domain wildcard patterns for per-site permissions
+├─ cover-capture.ts     → cover byte download in the browser (Cloudflare-walled CDNs)
+├─ cover-pixels.ts      → screenshot-crop fallback when even the browser fetch is blocked
 ├─ detection-log.ts     → last detection per tab (in-memory); feeds the popup diagnosis
 ├─ messages.ts          → typed runtime messages (popup/content ↔ background)
 ├─ message-handler.ts   → background business logic (routes/service split)

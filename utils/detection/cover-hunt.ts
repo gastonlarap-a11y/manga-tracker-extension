@@ -175,7 +175,9 @@ export function isSeriesPath(pathname: string): boolean {
 
 // Level 4 (SPA sites like manhwaweb, whose fetched series page is an empty
 // shell): when the USER visits the rendered series page of a tracked site,
-// pick which library manga without a cover it belongs to.
+// pick which library manga still needing cover work it belongs to — no cover
+// URL at all, or a URL whose bytes could not be captured yet
+// (Cloudflare-walled CDNs). Entries with stored bytes cost nothing.
 export function matchLibraryEntry(
   entries: LibraryEntryDto[],
   pageText: string,
@@ -183,7 +185,7 @@ export function matchLibraryEntry(
   let best: { entry: LibraryEntryDto; hits: number } | null = null;
   const haystack = normalize(pageText);
   for (const entry of entries) {
-    if (entry.coverUrl !== null) {
+    if (entry.hasStoredCover) {
       continue;
     }
     const words = significantWords(entry.canonicalName);
@@ -215,9 +217,24 @@ export function pickSeriesPageCover(
   if (fromMeta) {
     return fromMeta;
   }
+  const img = pickSeriesPageCoverImage(doc, mangaName);
+  if (!img) {
+    return null;
+  }
+  return resolveImageUrl(
+    img.currentSrc || img.getAttribute("src") || "",
+    doc.baseURI,
+  );
+}
 
-  let named: string | null = null;
-  let largest: { href: string; area: number } | null = null;
+// The IMG element behind pickSeriesPageCover's in-page scan — also the crop
+// target for the pixel capture of Cloudflare-walled covers.
+export function pickSeriesPageCoverImage(
+  doc: Document,
+  mangaName: string,
+): HTMLImageElement | null {
+  let named: HTMLImageElement | null = null;
+  let largest: { img: HTMLImageElement; area: number } | null = null;
   for (const img of doc.querySelectorAll("img")) {
     if (!(img instanceof HTMLImageElement)) {
       continue;
@@ -236,20 +253,71 @@ export function pickSeriesPageCover(
       continue;
     }
     const src = img.currentSrc || img.getAttribute("src") || "";
-    const resolved = resolveImageUrl(src, doc.baseURI);
-    if (!resolved) {
+    if (!resolveImageUrl(src, doc.baseURI)) {
       continue;
     }
     const alt = img.getAttribute("alt") ?? "";
     if (named === null && nameMatches(mangaName, `${alt} ${decodeUrl(src)}`)) {
-      named = resolved;
+      named = img;
     }
     const area = width * height;
     if (!largest || area > largest.area) {
-      largest = { href: resolved, area };
+      largest = { img, area };
     }
   }
-  return named ?? largest?.href ?? null;
+  return named ?? largest?.img ?? null;
+}
+
+// Sites render size variants of the same asset: WordPress appends -WxH
+// (thumb_X.webp ↔ thumb_X-110x150.webp) or serves the suffixless base
+// (001.png ↔ stored 001-714x1024.png). Same directory + same stem = same
+// image.
+function coverVariantKey(url: string): string | null {
+  try {
+    const { origin, pathname } = new URL(url);
+    const normalized = pathname.replace(/-\d+x\d+(\.\w+)$/, "$1");
+    return `${origin}${normalized}`;
+  } catch {
+    return null;
+  }
+}
+
+// The rendered element showing the stored cover — what the pixel capture
+// screenshots. Only exact or size-variant src matches qualify: a blind
+// "largest portrait" fallback could crop ANOTHER manga's sidebar cover, so
+// when the cover URL is known and nothing matches, there is no element.
+export function findRenderedCoverElement(
+  doc: Document,
+  coverUrl: string | null,
+  mangaName: string,
+): HTMLImageElement | null {
+  if (coverUrl === null) {
+    return pickSeriesPageCoverImage(doc, mangaName);
+  }
+  const wanted = coverVariantKey(coverUrl);
+  if (wanted === null) {
+    return null;
+  }
+  let best: { img: HTMLImageElement; area: number } | null = null;
+  for (const img of doc.querySelectorAll("img")) {
+    if (!(img instanceof HTMLImageElement)) {
+      continue;
+    }
+    const src = img.currentSrc || img.getAttribute("src") || "";
+    const resolved = resolveImageUrl(src, doc.baseURI);
+    if (!resolved || coverVariantKey(resolved) !== wanted) {
+      continue;
+    }
+    // Among variants prefer the largest rendered one (the hero, not the
+    // 110x150 thumb).
+    const rect = img.getBoundingClientRect();
+    const area =
+      (img.naturalWidth || rect.width) * (img.naturalHeight || rect.height);
+    if (!best || area > best.area) {
+      best = { img, area };
+    }
+  }
+  return best?.img ?? null;
 }
 
 // Accented slugs arrive percent-encoded in src ("m%C3%A1gico"), which would

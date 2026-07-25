@@ -62,6 +62,36 @@ describe("isRuntimeMessage", () => {
     ).toBe(true);
   });
 
+  it("accepts an ensure-site-registered message with a pattern list", () => {
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*", "https://*.a.com/*"],
+        tabId: 2,
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: "https://a.com/*",
+        tabId: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*", 7],
+        tabId: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*"],
+      }),
+    ).toBe(false);
+  });
+
   it("accepts a get-library message", () => {
     expect(isRuntimeMessage({ kind: "get-library" })).toBe(true);
   });
@@ -79,6 +109,36 @@ describe("isRuntimeMessage", () => {
       isRuntimeMessage({
         kind: "set-cover",
         coverUrl: "https://cdn.example.com/cover.webp",
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts report-delivery only with a url and a valid delivery status", () => {
+    expect(
+      isRuntimeMessage({
+        kind: "report-delivery",
+        url: "https://a.com/c/12",
+        delivery: { status: "sent" },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeMessage({
+        kind: "report-delivery",
+        url: "https://a.com/c/12",
+        delivery: { status: "failed", error: "Backend unreachable" },
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeMessage({
+        kind: "report-delivery",
+        url: "https://a.com/c/12",
+        delivery: { status: "failed" },
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "report-delivery",
+        delivery: { status: "sent" },
       }),
     ).toBe(false);
   });
