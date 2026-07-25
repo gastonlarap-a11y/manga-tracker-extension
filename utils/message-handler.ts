@@ -35,7 +35,11 @@ import type {
 } from "./messages";
 import type { PageInfo } from "./page-info";
 import { isPageInfo } from "./page-info";
-import { registerSite, unregisterSite } from "./site-registration";
+import {
+  ensureDetectorRegistered,
+  registerSite,
+  unregisterSite,
+} from "./site-registration";
 import { buildTestEventPayload } from "./test-event";
 
 const CALIBRATION_SCRIPT = "/content-scripts/calibration.js" as const;
@@ -68,6 +72,8 @@ export function handleMessage(
       return registerSite(message.originPattern, message.tabId);
     case "unregister-site":
       return unregisterSite(message.originPattern);
+    case "ensure-site-registered":
+      return ensureDetectorRegistered(message.originPatterns, message.tabId);
     case "report-detection": {
       if (senderTabId !== undefined) {
         recordDetection(senderTabId, {

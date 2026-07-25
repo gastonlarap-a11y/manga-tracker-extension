@@ -16,6 +16,7 @@ import type {
   DeliveryStatus,
   DetectionEntry,
 } from "./detection-log";
+import type { DetectorRepair } from "./site-registration";
 
 export type RuntimeMessage =
   | { kind: "ping" }
@@ -24,6 +25,13 @@ export type RuntimeMessage =
   | { kind: "record-event"; payload: CreateEventBody }
   | { kind: "register-site"; originPattern: string; tabId: number }
   | { kind: "unregister-site"; originPattern: string }
+  // Reconciles a granted permission with a live detector registration; the two
+  // drift apart whenever the extension is reloaded or updated.
+  | {
+      kind: "ensure-site-registered";
+      originPatterns: string[];
+      tabId: number;
+    }
   | { kind: "report-detection"; url: string; detection: Detection }
   | { kind: "report-delivery"; url: string; delivery: DeliveryStatus }
   | { kind: "report-cover-heal"; url: string; coverHeal: CoverHealStatus }
@@ -57,6 +65,7 @@ export interface MessageResponses {
   "record-event": ApiResult<CreateEventResponse>;
   "register-site": ApiResult<null>;
   "unregister-site": ApiResult<null>;
+  "ensure-site-registered": ApiResult<DetectorRepair>;
   "report-detection": null;
   "report-delivery": null;
   "report-cover-heal": null;
@@ -110,6 +119,14 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case "unregister-site":
       return (
         "originPattern" in value && typeof value.originPattern === "string"
+      );
+    case "ensure-site-registered":
+      return (
+        "originPatterns" in value &&
+        Array.isArray(value.originPatterns) &&
+        value.originPatterns.every((pattern) => typeof pattern === "string") &&
+        "tabId" in value &&
+        typeof value.tabId === "number"
       );
     case "report-detection":
       return (

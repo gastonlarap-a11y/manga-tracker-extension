@@ -62,6 +62,36 @@ describe("isRuntimeMessage", () => {
     ).toBe(true);
   });
 
+  it("accepts an ensure-site-registered message with a pattern list", () => {
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*", "https://*.a.com/*"],
+        tabId: 2,
+      }),
+    ).toBe(true);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: "https://a.com/*",
+        tabId: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*", 7],
+        tabId: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isRuntimeMessage({
+        kind: "ensure-site-registered",
+        originPatterns: ["https://a.com/*"],
+      }),
+    ).toBe(false);
+  });
+
   it("accepts a get-library message", () => {
     expect(isRuntimeMessage({ kind: "get-library" })).toBe(true);
   });

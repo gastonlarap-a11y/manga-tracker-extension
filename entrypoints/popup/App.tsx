@@ -59,13 +59,39 @@ async function readActiveSite(): Promise<SiteState> {
   const tabId = tab.id;
   const widePatterns = trackingOriginPatterns(host);
   if (await browser.permissions.contains({ origins: widePatterns })) {
+    const repair = await ensureRegistered(widePatterns, tabId);
+    if (!repair.ok) {
+      return repair.state;
+    }
     return { kind: "tracked", host, originPatterns: widePatterns, tabId };
   }
   const narrowPattern = `${origin.origin}/*`;
   if (await browser.permissions.contains({ origins: [narrowPattern] })) {
+    const repair = await ensureRegistered([narrowPattern], tabId);
+    if (!repair.ok) {
+      return repair.state;
+    }
     return { kind: "tracked-narrow", host, narrowPattern, widePatterns, tabId };
   }
   return { kind: "untracked", host, widePatterns, tabId };
+}
+
+// The granted permission alone does not mean the detector is live: extension
+// reloads wipe the registrations and keep the permissions, which used to leave
+// the popup claiming "tracked" over a site that never detected anything.
+async function ensureRegistered(
+  originPatterns: string[],
+  tabId: number,
+): Promise<{ ok: true } | { ok: false; state: SiteState }> {
+  const result = await sendRuntimeMessage({
+    kind: "ensure-site-registered",
+    originPatterns,
+    tabId,
+  });
+  if (!result.ok) {
+    return { ok: false, state: { kind: "error", error: result.error } };
+  }
+  return { ok: true };
 }
 
 export function App() {
