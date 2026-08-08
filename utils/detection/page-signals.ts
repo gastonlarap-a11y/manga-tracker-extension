@@ -24,13 +24,41 @@ export function collectPageSignals(doc: Document, url: string): PageSignals {
   };
 }
 
+function seriesLinkTitle(doc: Document, url: string): string | null {
+  return findSeriesLink(doc, url)?.text ?? null;
+}
+
+/**
+ * Absolute URL of the series page this chapter belongs to, or null when the
+ * page exposes no such link.
+ *
+ * Sent alongside the reading so the backend can key the series by its path
+ * instead of by its title: a site that reformats its <title> (adds the
+ * scanlation group, drops the chapter) used to create a SECOND manga for a
+ * series already being tracked. The path does not move.
+ */
+export function seriesUrlFrom(doc: Document, url: string): string | null {
+  const link = findSeriesLink(doc, url);
+  if (!link) {
+    return null;
+  }
+  try {
+    return new URL(link.path, url).href;
+  } catch {
+    return null;
+  }
+}
+
 // Chapter URLs usually nest under the series page (/series/<slug>/<chapter>),
 // and some anchor on the page (breadcrumb, reader header) points back at that
 // parent path carrying the series name — a signal that survives sites whose
 // <title>/og tags only hold branding (mhscans). The anchor text must
 // round-trip against the anchor's own slug so navigation labels ("Ver todos
 // los capítulos") are never mistaken for a title.
-function seriesLinkTitle(doc: Document, url: string): string | null {
+function findSeriesLink(
+  doc: Document,
+  url: string,
+): { path: string; text: string } | null {
   let current: URL;
   try {
     current = new URL(url);
@@ -69,7 +97,7 @@ function seriesLinkTitle(doc: Document, url: string): string | null {
       best = { path, text };
     }
   }
-  return best?.text ?? null;
+  return best;
 }
 
 function withTrailingSlash(path: string): string {

@@ -12,6 +12,7 @@ import {
 } from "@/utils/detection/cover-hunt";
 import { detectReading } from "@/utils/detection/detect";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
+import { seriesUrlFrom } from "@/utils/detection/page-signals";
 import type { CoverHealStatus } from "@/utils/detection-log";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
 
@@ -79,12 +80,16 @@ export default defineContentScript({
         return;
       }
 
+      // Stable identity within this site, independent of how the site writes
+      // its <title> today. Omitted when the page has no link back to a series.
+      const seriesUrl = seriesUrlFrom(document, url);
       const recorded = await sendRuntimeMessage({
         kind: "record-event",
         payload: {
           mangaName: detection.mangaName,
           chapterLabel: detection.chapterLabel,
           sourceUrl: url,
+          ...(seriesUrl !== null ? { seriesUrl } : {}),
         },
       });
       // The popup must be able to tell "detected" apart from "detected and
@@ -107,7 +112,12 @@ export default defineContentScript({
         lastReportedUrl = url;
         const manga = recorded.data.manga;
         if (manga.coverUrl === null) {
-          void attachCover(detection.mangaName, detection.chapterLabel, url);
+          void attachCover(
+            detection.mangaName,
+            detection.chapterLabel,
+            url,
+            seriesUrl,
+          );
         } else if (!manga.hasStoredCover) {
           // Heal pending cover bytes right where the user reads: a chapter
           // page is same-site with its CDN, the one context every
@@ -124,6 +134,7 @@ export default defineContentScript({
       mangaName: string,
       chapterLabel: string,
       sourceUrl: string,
+      seriesUrl: string | null,
     ): Promise<void> {
       const coverUrl = await huntCover(document, mangaName, sourceUrl);
       if (!coverUrl) {
@@ -131,7 +142,15 @@ export default defineContentScript({
       }
       void sendRuntimeMessage({
         kind: "record-event",
-        payload: { mangaName, chapterLabel, sourceUrl, coverUrl },
+        // The same series identity as the first send: this is the same event,
+        // and it must resolve to the same manga.
+        payload: {
+          mangaName,
+          chapterLabel,
+          sourceUrl,
+          coverUrl,
+          ...(seriesUrl !== null ? { seriesUrl } : {}),
+        },
       });
     }
 

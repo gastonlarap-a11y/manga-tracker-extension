@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { collectPageSignals, coverFromDocument } from "./page-signals";
+import {
+  collectPageSignals,
+  coverFromDocument,
+  seriesUrlFrom,
+} from "./page-signals";
 
 const URL_UNDER_TEST = "https://example.com/one-piece/capitulo/1100";
 
@@ -98,6 +102,39 @@ describe("series link signal", () => {
     expect(
       collectPageSignals(document, CHAPTER_URL).seriesLinkTitle,
     ).toBeNull();
+  });
+});
+
+describe("seriesUrlFrom", () => {
+  const CHAPTER_URL =
+    "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/";
+
+  it("returns the absolute series url the chapter hangs off", () => {
+    // Sent to the backend as identity within the site: it survives the site
+    // reformatting its <title>, which a title-derived slug does not.
+    document.body.innerHTML =
+      '<a href="/series/espadachin-a-tiempo-completo/">Espadachín a Tiempo Completo</a>';
+
+    expect(seriesUrlFrom(document, CHAPTER_URL)).toBe(
+      "https://mhscans.com/series/espadachin-a-tiempo-completo/",
+    );
+  });
+
+  it("is null when the page has no usable series link", () => {
+    document.body.innerHTML =
+      '<a href="/series/espadachin-a-tiempo-completo/">Ver todos los capítulos</a>';
+
+    expect(seriesUrlFrom(document, CHAPTER_URL)).toBeNull();
+  });
+
+  it("stays consistent with the title signal it shares its search with", () => {
+    document.body.innerHTML =
+      '<a href="/series/espadachin-a-tiempo-completo/">Espadachín a Tiempo Completo</a>';
+
+    expect(seriesUrlFrom(document, CHAPTER_URL)).not.toBeNull();
+    expect(collectPageSignals(document, CHAPTER_URL).seriesLinkTitle).not.toBe(
+      null,
+    );
   });
 });
 

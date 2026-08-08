@@ -33,6 +33,10 @@ export interface CreateEventBody {
   chapterLabel: string;
   sourceUrl: string;
   coverUrl?: string;
+  // The series page this chapter belongs to. The backend derives its own key
+  // from it and uses it as identity within the site, so a reformatted <title>
+  // no longer splits a series into a second manga.
+  seriesUrl?: string;
 }
 
 export interface CreateEventResponse {
