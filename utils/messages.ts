@@ -206,7 +206,8 @@ function isCreateEventBody(value: unknown): value is CreateEventBody {
     typeof value.chapterLabel === "string" &&
     "sourceUrl" in value &&
     typeof value.sourceUrl === "string" &&
-    (!("coverUrl" in value) || typeof value.coverUrl === "string")
+    (!("coverUrl" in value) || typeof value.coverUrl === "string") &&
+    (!("seriesUrl" in value) || typeof value.seriesUrl === "string")
   );
 }
 
