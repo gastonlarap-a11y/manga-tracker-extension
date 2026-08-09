@@ -69,6 +69,8 @@ describe("isReaderPath", () => {
     ["https://example.com/read/solo-leveling/5"],
     ["https://example.com/viewer/abc123"],
     ["https://example.com/manga/one-piece/leer/58204923"],
+    ["https://mangadex.org/chapter/e3d4e69e-2a83-4492-9603-507fbff406e7"],
+    ["https://example.com/capitulo/a1b2c3"],
   ])("accepts the reader path %s", (url) => {
     expect(isReaderPath(url)).toBe(true);
   });
@@ -263,6 +265,29 @@ describe("detectFromHeuristics", () => {
     );
 
     expect(result).toEqual({ detected: false, reason: "no-chapter-in-title" });
+  });
+
+  // Real page, read off mangadex.org: the url names the chapter but identifies
+  // it with a uuid, so the number the old gate demanded never arrives. Whether
+  // it detected depended on the first hex digit being a numeral.
+  it("detects a chapter page whose url carries an opaque id (mangadex)", () => {
+    const result = detectFromHeuristics(
+      signals({
+        url: "https://mangadex.org/chapter/e3d4e69e-2a83-4492-9603-507fbff406e7",
+        documentTitle:
+          "1 | Chapter 107 - Tonari no Seki no Yatsu ga Souiu Me de Mitekuru - MangaDex",
+        ogTitle:
+          "Tonari no Seki no Yatsu ga Souiu Me de Mitekuru - Ch. 107 - MangaDex",
+        siteName: "MangaDex",
+      }),
+    );
+
+    expect(result).toEqual({
+      detected: true,
+      mangaName: "Tonari no Seki no Yatsu ga Souiu Me de Mitekuru",
+      chapterLabel: "Cap. 107",
+      confidence: 0.9,
+    });
   });
 
   it("does not detect catalog pages (no chapter in url)", () => {
