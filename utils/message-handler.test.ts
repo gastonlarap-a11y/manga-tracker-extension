@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing";
+import { baseUrlFor, DEFAULT_PORT, rememberBaseUrl } from "./api/discovery";
 import { handleMessage } from "./message-handler";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -32,9 +33,12 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   fakeBrowser.reset();
   fetchMock.mockReset();
+  // Pin where the backend is, so these tests exercise the handler and not the
+  // port sweep — that one is covered in utils/api/discovery.test.ts.
+  await rememberBaseUrl(baseUrlFor(DEFAULT_PORT));
   executeScriptMock.mockReset();
   createImageBitmapMock.mockReset();
   captureVisibleTabMock.mockReset();

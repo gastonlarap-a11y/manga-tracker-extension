@@ -1,3 +1,4 @@
+import { forgetBaseUrl, resolveBaseUrl } from "./discovery";
 import type {
   CreateAdapterBody,
   CreateEventBody,
@@ -8,9 +9,9 @@ import type {
   SiteAdapterDto,
 } from "./types";
 
-// Single place that knows where the backend lives (mirrors the API's rule
-// that only config.ts reads the environment).
-export const API_BASE_URL = "http://localhost:5150";
+// Where the backend lives is no longer a constant: an installed copy listens on
+// whichever port was free on that machine. `discovery.ts` is the single place
+// that knows how to find it.
 
 export type ApiResult<T> =
   | { ok: true; data: T }
@@ -92,12 +93,53 @@ async function request<T>(
   path: string,
   init?: RequestInit,
 ): Promise<ApiResult<T>> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, init);
-  } catch (cause) {
+  const baseUrl = await resolveBaseUrl();
+  if (baseUrl === null) {
     return {
       ok: false,
+      error: "No se encontró Manga Tracker en ningún puerto local (5150-5159).",
+    };
+  }
+
+  const first = await send<T>(baseUrl, path, init);
+  if (first.reached) {
+    return first.result;
+  }
+
+  // Nothing reached the server — the fetch itself threw, so no request was
+  // processed and repeating it cannot duplicate a reading event. The usual
+  // cause is a backend that moved to another port after a reinstall, so drop
+  // the cached URL and look again before giving up.
+  await forgetBaseUrl();
+  const rediscovered = await resolveBaseUrl();
+  if (rediscovered === null || rediscovered === baseUrl) {
+    return { ok: false, error: first.error };
+  }
+  const second = await send<T>(rediscovered, path, init);
+  return second.reached ? second.result : { ok: false, error: second.error };
+}
+
+/**
+ * The distinction the retry hangs on: `reached: false` means the request never
+ * made it to a server, and is the only case where trying another port is safe.
+ * An HTTP error is `reached: true` — the backend answered, and its answer is
+ * the outcome, however bad.
+ */
+type Attempt<T> =
+  | { readonly reached: true; readonly result: ApiResult<T> }
+  | { readonly reached: false; readonly error: string };
+
+async function send<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<Attempt<T>> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, init);
+  } catch (cause) {
+    return {
+      reached: false,
       error: cause instanceof Error ? cause.message : "Network request failed",
     };
   }
@@ -111,15 +153,18 @@ async function request<T>(
 
   if (!response.ok) {
     return {
-      ok: false,
-      error: extractErrorMessage(body, response.status),
-      status: response.status,
+      reached: true,
+      result: {
+        ok: false,
+        error: extractErrorMessage(body, response.status),
+        status: response.status,
+      },
     };
   }
   // Cast justified: the API's OpenAPI schema is the contract and its types are
   // duplicated by hand in ./types.ts — this is the trust boundary with the
   // local backend.
-  return { ok: true, data: body as T };
+  return { reached: true, result: { ok: true, data: body as T } };
 }
 
 function extractErrorMessage(body: unknown, status: number): string {

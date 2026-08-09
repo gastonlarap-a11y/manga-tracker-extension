@@ -10,6 +10,7 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
+    "zip:store": "STORE_BUILD=1 wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "install:local": "wxt build && mkdir -p \"$HOME/Library/Application Support/MangaTracker/extension\" && rsync -a --delete-after .output/chrome-mv3/ \"$HOME/Library/Application Support/MangaTracker/extension/\"",
     "test": "vitest run",
