@@ -71,28 +71,52 @@ unzip -p .output/manga-tracker-extension-*-chrome.zip manifest.json | grep -c '"
 Manga Tracker
 ```
 
-### Resumen (*summary*, máximo 132 caracteres)
+### Resumen (*summary*, máximo 132 caracteres — este usa 115)
 
 ```
-Registra qué manga y qué capítulo estás leyendo, y lo guarda en tu propia computadora. Sin cuentas y sin servidores.
+Registra qué manga y qué capítulo estás leyendo y lo guarda en tu propia computadora. Sin cuentas y sin servidores.
 ```
 
-### Descripción
+### Descripción detallada
+
+Arranca diciendo qué hace, que es lo que pide Google, y dedica un bloque entero a que
+**necesita la aplicación de escritorio**: sin eso, quien la instale ve "desconectado" y
+concluye que está rota.
 
 ```
-Manga Tracker lleva la cuenta de lo que leés, sin pedirte una cuenta y sin mandar nada a
-internet.
+Manga Tracker lleva la cuenta de qué manga y qué capítulo estás leyendo, y lo guarda en tu
+propia computadora. Sin cuenta, sin registro y sin servidores.
 
-Cómo funciona:
-• Activás el seguimiento sitio por sitio, cuando vos querés. Un sitio que no habilitaste
-  nunca es leído por la extensión.
-• En los sitios habilitados detecta sola el manga y el capítulo, y lo registra.
-• Todo queda en la aplicación Manga Tracker instalada en tu computadora, en una base de
-  datos local. La extensión no habla con ningún servidor: su única salida es localhost.
+CÓMO FUNCIONA
 
-Requiere la aplicación de escritorio Manga Tracker instalada en la misma computadora.
+• Vos elegís qué sitios se trackean. La extensión pide permiso para un sitio sólo cuando
+  apretás "Trackear este sitio"; un sitio que no habilitaste nunca es leído.
+• En los sitios habilitados detecta sola el manga y el capítulo mientras leés, y lo registra
+  al instante.
+• Si un sitio tiene un diseño que confunde a la detección, lo calibrás con dos clics:
+  marcás dónde está el título y dónde el número de capítulo.
+• Tu historial queda en la aplicación Manga Tracker de tu computadora, en una base de datos
+  local, con la biblioteca completa y los capítulos leídos de cada serie.
 
-Código abierto: https://github.com/gastonlarap-a11y/manga-tracker-extension
+IMPORTANTE: NECESITA LA APLICACIÓN DE ESCRITORIO
+
+Esta extensión es la mitad que vive en el navegador. La otra mitad es una aplicación que
+corre en tu propia computadora y es la que guarda tu biblioteca. Sin ella instalada, la
+extensión indica "desconectado" y no registra nada.
+
+Se instala desde: https://github.com/gastonlarap-a11y/manga-tracker-api
+
+PRIVACIDAD
+
+La extensión no manda nada a internet. Su única salida es http://localhost, es decir tu
+propia máquina. No hay cuentas, ni telemetría, ni analítica, ni servicios de terceros. No se
+recolecta ni se comparte ningún dato.
+
+CÓDIGO ABIERTO
+
+Todo lo anterior se puede verificar leyendo el código:
+• Extensión: https://github.com/gastonlarap-a11y/manga-tracker-extension
+• Aplicación: https://github.com/gastonlarap-a11y/manga-tracker-api
 ```
 
 ### Categoría
@@ -102,6 +126,21 @@ Código abierto: https://github.com/gastonlarap-a11y/manga-tracker-extension
 ### Idioma
 
 Español (Latinoamérica).
+
+### Campos adicionales
+
+Los tres son opcionales; dos valen la pena.
+
+| Campo | Qué poner |
+|---|---|
+| URL oficial | **Ninguna.** Exige verificar la propiedad del dominio en Google Search Console, y `github.com` no es tuyo. Sólo agrega una insignia de editor verificado — no justifica registrar un dominio. |
+| URL de la página principal | `https://github.com/gastonlarap-a11y/manga-tracker-extension` |
+| URL de asistencia | `https://github.com/gastonlarap-a11y/manga-tracker-extension/issues` |
+
+Las dos últimas no son trámite: la ficha afirma que la extensión no manda datos y que es
+código abierto, y el enlace al repositorio es la prueba — para el revisor tanto como para
+quien la instala. Y la URL de asistencia manda los problemas a Issues, donde se pueden
+responder, en vez de a una reseña de una estrella que no se puede contestar.
 
 ---
 
