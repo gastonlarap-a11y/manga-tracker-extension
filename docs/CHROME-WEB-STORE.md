@@ -109,25 +109,75 @@ Español (Latinoamérica).
 
 | Recurso | Medida | ¿Obligatorio? |
 |---|---|---|
-| Ícono de tienda | 128×128 PNG | Sí — ya está en el repo (`public/icon/128.png`) |
+| Ícono de tienda | 128×128 PNG | Sí — subí `public/icon/128.png` tal cual |
 | Captura de pantalla | **1280×800** (o 640×400) PNG, sin bordes redondeados ni márgenes | **Sí, al menos una** |
 | Small promo tile | 440×280 | No, y para *unlisted* no sirve de nada |
 | Marquee | 1400×560 | No |
 
-**Cómo sacar la captura** (es lo único que no puedo hacer yo):
+### El ícono
 
-1. Abrí un sitio de manga con el seguimiento ya activado y un capítulo detectado.
-2. Abrí el popup de la extensión.
-3. Captura de pantalla (`⌘⇧4` y barra espaciadora para tomar sólo la ventana).
-4. Redimensionala a 1280×800 exactos:
-   ```bash
-   sips -z 800 1280 captura.png --out captura-store.png
-   ```
-   `sips` deforma si la proporción no coincide; si preferís no deformar, ponela sobre un fondo
-   liso de 1280×800.
+El dibujo vive en `docs/icon.svg` — un libro abierto con un marcador. De ahí salen los cinco
+PNG, y por eso el fuente está versionado: un PNG suelto no se puede volver a editar.
 
-Con una alcanza. Dos o tres (popup conectado, detección en marcha, calibración) hacen la ficha
-más creíble, pero no cambian la revisión.
+Los tamaños **no** son el mismo recorte, y la diferencia importa:
+
+- **16, 32, 48, 96** — barra del navegador. El dibujo llena el lienzo, porque a 16 px cada
+  píxel de margen es un 6% del ícono.
+- **128** — ficha de la tienda y diálogo de instalación. Acá Google pide el dibujo de **96 px
+  centrado con 16 px de margen transparente** por lado, sin borde ni sombra propia: la
+  interfaz agrega las suyas y un ícono que ya trae borde queda con dos.
+
+Regenerarlos (Chrome headless rasteriza el SVG; no hace falta instalar nada más):
+
+```bash
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+cd docs
+for s in 16 32 48 96; do
+  sed "s/width=\"128\" height=\"128\" viewBox=\"0 0 128 128\"/width=\"$s\" height=\"$s\" viewBox=\"16 16 96 96\"/" icon.svg > /tmp/icon-$s.svg
+  "$CHROME" --headless --disable-gpu --hide-scrollbars --default-background-color=00000000 \
+    --force-device-scale-factor=1 --screenshot="../public/icon/$s.png" --window-size=$s,$s /tmp/icon-$s.svg
+done
+"$CHROME" --headless --disable-gpu --hide-scrollbars --default-background-color=00000000 \
+  --force-device-scale-factor=1 --screenshot="../public/icon/128.png" --window-size=128,128 icon.svg
+```
+
+---
+
+## 4b. Las capturas de pantalla
+
+**Qué mostrar.** Con una alcanza; tres cuentan la historia completa:
+
+1. El popup abierto sobre un capítulo, con "Conectado" y el capítulo detectado — la función.
+2. El popup en un sitio recién habilitado, con el botón de activar el seguimiento — le muestra
+   al revisor que el acceso es **opt-in sitio por sitio**. Eso ayuda en la revisión.
+3. El dashboard con la biblioteca — qué se obtiene a cambio.
+
+**Cómo sacarla.** El popup se cierra al perder el foco, así que captura con retraso: corrés el
+comando, tenés 8 segundos para abrir el popup, dispara solo.
+
+```bash
+screencapture -T 8 -x ~/Desktop/cap1.png
+```
+
+**Cómo convertirla, que es donde rebota.** Una captura de macOS trae **canal alfa**
+(`sips -g hasAlpha` responde `yes`) y la tienda pide 24 bits **sin** alfa. Pasar a JPEG lo
+resuelve de raíz, porque el formato no tiene canal alfa:
+
+```bash
+sips -s format jpeg -s formatOptions 92 -Z 1280 ~/Desktop/cap1.png --out ~/Desktop/store1.jpg
+sips -c 800 1280 ~/Desktop/store1.jpg
+```
+
+La primera línea escala a 1280 de ancho; la segunda recorta al centro para dejar 800 de alto.
+**En ese orden y no `-z 800 1280`**, que fuerza las dos medidas a la vez y deforma la imagen
+cuando la pantalla no es exactamente 16:10.
+
+Verificar antes de subir:
+
+```bash
+sips -g pixelWidth -g pixelHeight -g hasAlpha ~/Desktop/store1.jpg
+# pixelWidth: 1280 · pixelHeight: 800 · hasAlpha: no
+```
 
 ---
 
