@@ -80,6 +80,12 @@ export interface SiteAdapterDto {
 
 export interface HealthResponse {
   status: "ok";
+  /**
+   * Optional only for compatibility with a backend older than the release that
+   * added it. Port discovery treats it as mandatory on every port but 5150 —
+   * see utils/api/discovery.ts.
+   */
+  service?: string;
 }
 
 export interface ErrorResponse {

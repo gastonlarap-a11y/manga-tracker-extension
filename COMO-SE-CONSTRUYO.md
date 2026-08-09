@@ -19,7 +19,8 @@ los pasos generalizables para repetir este proceso en otro proyecto.
 
 Extensión de navegador **Manifest V3** (el formato actual de Chrome/Brave). Su único
 trabajo: detectar qué manga y qué capítulo estás leyendo en un sitio que vos elegiste
-trackear, y avisarle a `manga-tracker-api` (el backend local en `http://localhost:5150`).
+trackear, y avisarle a `manga-tracker-api` (el backend local, en `http://localhost` y el
+puerto donde se haya instalado — 5150 por defecto).
 
 Una extensión MV3 tiene tres tipos de piezas, y acá están las tres:
 
@@ -165,8 +166,11 @@ openssl rsa -in extension-key.pem -pubout -outform DER | base64
   - `activeTab`: acceso temporal a la pestaña activa cuando el usuario interactúa.
   - `scripting`: poder inyectar/registrar content scripts por código.
   - `storage`: almacenamiento de la extensión.
-- `manifest.host_permissions: ["http://localhost:5150/*"]` — el ÚNICO host fijo es el
-  backend local. Sin esto, el `fetch` del service worker al backend fallaría.
+- `manifest.host_permissions: ["http://localhost/*"]` — el ÚNICO host fijo es el backend
+  local. Sin esto, el `fetch` del service worker al backend fallaría. **Sin puerto a
+  propósito**: un match pattern sin puerto coincide con *todos* los puertos, que es lo que
+  necesita el descubrimiento (paso 4) — una copia instalada escucha donde haya lugar. Sigue
+  siendo sólo localhost: no concede absolutamente nada en internet.
 - `manifest.optional_host_permissions: ["https://*/*", "http://*/*"]` — los sitios de
   manga NO se piden al instalar: se piden **en runtime, sitio por sitio**, cuando el
   usuario aprieta "Trackear este sitio". Filosofía opt-in: la extensión no puede leer
@@ -200,8 +204,20 @@ lado de la extensión.
 
 ### `utils/api/client.ts` — el cliente HTTP
 
-- `API_BASE_URL = "http://localhost:5150"` — constante única; espejo de la regla del API
-  de que solo `config.ts` conoce el entorno.
+- La URL base **ya no es una constante**: la resuelve `utils/api/discovery.ts`. Serlo valía
+  mientras el puerto se elegía una vez y se anotaba; una copia instalada escucha en el puerto
+  que estuviera libre en esa máquina, así que hay que *buscar* el backend en vez de suponerlo.
+  La búsqueda está acotada por un contrato con el instalador — **puertos 5150-5159** — y un
+  candidato sólo cuenta si `GET /health` responde `service: "manga-tracker-api"`. Sin ese
+  nombre, cualquier otra cosa que devuelva 200 en un puerto de loopback podría terminar
+  recibiendo tus lecturas.
+  - El resultado se cachea en `storage.session`: el service worker de MV3 se apaga a los
+    segundos de inactividad, así que un caché en memoria se perdería entre dos capítulos; y
+    como no sobrevive al cierre del navegador, un puerto cambiado por una reinstalación se
+    redescubre solo.
+  - Si un pedido no llega a ningún servidor, se olvida el caché, se busca de nuevo y se
+    reintenta **una** vez. Sólo en ese caso: si el backend respondió —aunque sea un 500— esa
+    es la respuesta, y reintentarla en otro puerto podría registrar el capítulo dos veces.
 - `type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number }`
   — **la decisión de diseño más importante del archivo**: las funciones NUNCA lanzan
   excepciones; devuelven una unión discriminada. Quien llama está obligado por el
@@ -410,9 +426,16 @@ La pieza que une todo: "quiero que ESTE sitio se trackee solo". Diseño en dos m
 ### `utils/site-registration.ts` — registrar el detector por origen
 
 Constantes: `DETECTOR_SCRIPT = "/content-scripts/detector.js"` (la barra inicial es
-obligatoria — tipo `ScriptPublicPath` de `.wxt/`), `DETECTOR_ID_PREFIX = "detector:"`,
-`BACKEND_ORIGIN_PATTERN = "http://localhost:5150/*"` (el permiso fijo del backend no es
-un sitio trackeado).
+obligatoria — tipo `ScriptPublicPath` de `.wxt/`) y `DETECTOR_ID_PREFIX = "detector:"`.
+
+El permiso del backend **no** es un sitio trackeado y hay que excluirlo de la lista de
+orígenes: registrarle el detector significaría que la extensión intenta trackear al propio
+dashboard. Antes era una comparación contra la cadena exacta `"http://localhost:5150/*"`, y
+eso se rompió solo al volverse configurable el puerto: el manifest pasó a pedir
+`http://localhost/*`, la comparación dejó de coincidir y localhost habría entrado como sitio
+de manga. Ahora es un predicado, `isBackendOrigin(origin)`, que reconoce las dos formas —
+también la vieja, que puede seguir concedida en un navegador que venía de la versión
+anterior. Cada una tiene su test.
 
 - `scriptId(originPattern)` (interna) — `"detector:" + originPattern`: el id del
   registro codifica a qué origen pertenece, lo que después permite la re-sincronización.

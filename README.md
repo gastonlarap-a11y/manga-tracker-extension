@@ -2,7 +2,8 @@
 
 Browser extension (Manifest V3) for the local-first personal manga reading tracker. It detects
 what manga/chapter is being read and reports it to
-[`manga-tracker-api`](../manga-tracker-api) running on `http://localhost:5150`. Built with
+[`manga-tracker-api`](../manga-tracker-api), found on whichever loopback port that backend
+was installed on (`utils/api/discovery.ts` probes 5150-5159). Built with
 [WXT](https://wxt.dev) + React 19, TypeScript, and Bun.
 
 Current state: **phases 4-8 of the project plan are complete** — popup connected to the
@@ -15,7 +16,7 @@ series pages. The remaining phases (9-11) live in `manga-tracker-api`.
 ## Prerequisites
 
 - [Bun](https://bun.sh) 1.3+
-- The backend running locally on port 5150 (see `manga-tracker-api`)
+- The backend running locally on a port in 5150-5159 (see `manga-tracker-api`)
 
 ## Setup
 
@@ -29,7 +30,8 @@ bun install   # also runs `wxt prepare` (generates .wxt/ types)
 |---|---|
 | `bun run dev` | Dev mode with HMR; outputs to `.output/chrome-mv3-dev/` |
 | `bun run build` | Production build into `.output/chrome-mv3/` |
-| `bun run zip` | Production build packed as a zip |
+| `bun run zip` | Production build packed as a zip (keeps `manifest.key`, so the id stays the local one) |
+| `bun run zip:store` | Zip for the Chrome Web Store: same build **without** `manifest.key`, which the store rejects on a first upload. See [`docs/CHROME-WEB-STORE.md`](docs/CHROME-WEB-STORE.md) |
 | `bun run test` | Run the test suite (vitest + WXT fake-browser) |
 | `bun run lint` | Lint and check formatting with Biome |
 | `bun run format` | Fix lint issues and format with Biome |

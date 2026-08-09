@@ -3,8 +3,20 @@ import type { ApiResult } from "./api/client";
 
 const DETECTOR_SCRIPT = "/content-scripts/detector.js" as const;
 const DETECTOR_ID_PREFIX = "detector:";
-// Fixed backend host permission (manifest host_permissions) — not a tracked site.
-const BACKEND_ORIGIN_PATTERN = "http://localhost:5150/*";
+/**
+ * The backend's own host permission (manifest `host_permissions`) is not a
+ * tracked site and must never get a detector registered on it — the dashboard
+ * is served from that very origin.
+ *
+ * Matched by host rather than by exact string on purpose: the manifest pattern
+ * changed from `http://localhost:5150/*` to `http://localhost/*` when the port
+ * became configurable, and a grant made by an older version can still be sitting
+ * in `permissions.getAll()`. A single stale string here turns localhost into a
+ * site the extension tries to track.
+ */
+export function isBackendOrigin(originPattern: string): boolean {
+  return /^http:\/\/localhost(:\d+|:\*)?\/\*$/.test(originPattern);
+}
 
 function scriptId(originPattern: string): string {
   return `${DETECTOR_ID_PREFIX}${originPattern}`;
@@ -127,7 +139,7 @@ export async function injectDetectorIntoOpenTabs(): Promise<ApiResult<null>> {
   try {
     const granted = await browser.permissions.getAll();
     const origins = (granted.origins ?? []).filter(
-      (origin) => origin !== BACKEND_ORIGIN_PATTERN,
+      (origin) => !isBackendOrigin(origin),
     );
     for (const originPattern of origins) {
       const tabs = await browser.tabs.query({ url: originPattern });
@@ -165,7 +177,7 @@ export async function syncRegisteredSites(): Promise<ApiResult<null>> {
       browser.scripting.getRegisteredContentScripts(),
     ]);
     const grantedOrigins = (granted.origins ?? []).filter(
-      (origin) => origin !== BACKEND_ORIGIN_PATTERN,
+      (origin) => !isBackendOrigin(origin),
     );
     const registeredIds = new Set(
       registered

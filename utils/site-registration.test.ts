@@ -190,7 +190,7 @@ describe("ensureDetectorRegistered", () => {
 describe("syncRegisteredSites", () => {
   it("re-registers granted origins whose registration was wiped", async () => {
     getAllPermissionsMock.mockResolvedValue({
-      origins: ["http://localhost:5150/*", "https://olympusxyz.com/*"],
+      origins: ["http://localhost/*", "https://olympusxyz.com/*"],
       permissions: ["storage", "activeTab", "scripting"],
     });
     getRegisteredMock.mockResolvedValue([]);
@@ -211,9 +211,16 @@ describe("syncRegisteredSites", () => {
     expect(result).toEqual({ ok: true, data: null });
   });
 
-  it("never registers a detector for the backend host permission", async () => {
+  // The backend's own origin is not a manga site, and the dashboard is served
+  // from it. Both spellings have to be excluded: the manifest asks for
+  // `http://localhost/*` since the port became configurable, and a grant made
+  // by an older version can still be sitting in permissions.getAll().
+  it.each([
+    ["the current manifest pattern", "http://localhost/*"],
+    ["a grant left by an older version", "http://localhost:5150/*"],
+  ])("never registers a detector for %s", async (_label, origin) => {
     getAllPermissionsMock.mockResolvedValue({
-      origins: ["http://localhost:5150/*"],
+      origins: [origin],
       permissions: [],
     });
     getRegisteredMock.mockResolvedValue([]);
@@ -268,7 +275,7 @@ describe("syncRegisteredSites", () => {
 describe("injectDetectorIntoOpenTabs", () => {
   it("injects the detector into every open tab of granted origins", async () => {
     getAllPermissionsMock.mockResolvedValue({
-      origins: ["http://localhost:5150/*", "https://olympusxyz.com/*"],
+      origins: ["http://localhost/*", "https://olympusxyz.com/*"],
       permissions: [],
     });
     tabsQueryMock.mockResolvedValue([{ id: 3 }, { id: 9 }]);
@@ -279,8 +286,10 @@ describe("injectDetectorIntoOpenTabs", () => {
     expect(tabsQueryMock).toHaveBeenCalledWith({
       url: "https://olympusxyz.com/*",
     });
+    // Never the backend's own origin: injecting the detector into the
+    // dashboard would have it try to track the tracker.
     expect(tabsQueryMock).not.toHaveBeenCalledWith({
-      url: "http://localhost:5150/*",
+      url: "http://localhost/*",
     });
     expect(executeScriptMock).toHaveBeenCalledWith({
       target: { tabId: 3 },

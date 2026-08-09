@@ -1,0 +1,23 @@
+# gitleaks configuration.
+#
+# The scan exists for one reason: `extension-key.pem` — the PRIVATE key that
+# signs this extension — is kept out of git by .gitignore alone, and .gitignore
+# is one careless `git add -f` away from being bypassed. That gate stays on.
+#
+# `useDefault = true` is what keeps every stock rule active. Dropping it would
+# turn this file into a silent disabling of the whole scan, which is the exact
+# opposite of why it is here.
+[extend]
+useDefault = true
+
+# The only exemption: the extension's PUBLIC key. It is not a secret by
+# definition — Chrome derives the extension id from it, it is shipped inside
+# every build, and it is readable in the manifest of any installed copy. The
+# scanner flags it purely on entropy, and it is allowlisted by its exact value,
+# so any other high-entropy string in the repo — starting with the private half
+# of this pair — still fails the build.
+[allowlist]
+description = "manga-tracker-extension public key (manifest.key), not a credential"
+regexes = [
+  '''MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw7\+own37PxVHAC65UFaiSGKsVVUbRFzQgq7HLSNCVTx7C7rwSkI0gOQptdSsQHPEAWlKsKccVGfKgZjbUik9uMaQGXuZ3woTSR51ok3eBeZDi6drDKkZiP\+D\+pp4a6oFL46SR\+E79j2cWz\+/lpwWnOP4Bz9b1v8Uw5SWlyxsNXnUcWhJA\+Ei/lu8nwDloMVQi66chHB2ZxvPUrRABNZkzMUcu9eG2bde9yIm\+/L3K\+Z2e4iOjElM8Nv9i6S32me/kT88W9PYgodRSSgDF5SwSJ7W3iN8tcJOjx44zU3xxpYIjuWf3fFYxRZu8FofZ/Rzr9Bgn8/53C81NLim6ei0lwIDAQAB''',
+]

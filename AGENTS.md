@@ -1,7 +1,8 @@
 # manga-tracker-extension
 
 Browser extension (MV3) of the local-first manga tracker. Talks only to
-`manga-tracker-api` on `http://localhost:5150`.
+`manga-tracker-api`, on whichever loopback port that backend was installed on
+(`utils/api/discovery.ts`; 5150 by default).
 Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos).
 
 ## Layout
@@ -11,7 +12,8 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   `createShadowRootUi`); all content scripts are `registration: "runtime"`, injected on
   demand. `popup/` (React)
 - `utils/` — shared logic (auto-importable dir, but imports are explicit via `#imports`/`@/`)
-  - `utils/api/` — backend contract types (hand-duplicated) + fetch client
+  - `utils/api/` — backend contract types (hand-duplicated), fetch client, and
+    `discovery.ts` (finds the backend's port and caches it in `storage.session`)
   - `utils/detection/` — pure detection pipeline: page signals → adapter or
     heuristics → confidence (threshold 0.7 gates auto-send)
   - `utils/message-handler.ts` — background business logic (entrypoint stays thin)
@@ -44,9 +46,23 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   popup and content scripts go through typed runtime messages (`utils/messages.ts`).
 - Entrypoints stay thin (wiring only); logic lives in `utils/` where vitest can reach it;
   `utils/` never imports from `entrypoints/` (mirror of the API's routes/service split).
-- The extension id must stay `cfjiinlnepkmlaafdclmlpjbmpofplop`: never remove or rotate
-  `manifest.key` in `wxt.config.ts` (the API's CORS allowlist depends on it).
-  The private key (`extension-key.pem`) stays out of git.
+- The unpacked id must stay `cfjiinlnepkmlaafdclmlpjbmpofplop`: never remove or rotate
+  `manifest.key` in `wxt.config.ts`. The private key (`extension-key.pem`) stays out of git.
+  The **store** build is the one exception — `bun run zip:store` drops `key`, because the
+  Web Store rejects a first upload that declares one ("key field not allowed in manifest")
+  and assigns an id of its own. That is why the API's allowlist is a list (`EXTENSION_IDS`)
+  and not a constant: the two ids coexist until the store's public key is pasted back here.
+  See `docs/CHROME-WEB-STORE.md`.
+- **The backend's port is discovered, never assumed.** `host_permissions` is
+  `http://localhost/*` — a match pattern with no port matches every port, which is what an
+  installed backend needs. The search is bounded by a contract with the installer: **ports
+  5150–5159**, and a candidate only counts if `GET /health` returns
+  `service: "manga-tracker-api"`. That name is mandatory on every port except 5150, where a
+  bare `{status:"ok"}` is still accepted so a backend older than that field keeps working.
+  Widening the range means changing it in the installer too.
+- Retrying a request on a rediscovered port is only safe when the fetch itself threw —
+  nothing reached a server, so a reading event cannot be posted twice. An HTTP error is an
+  answer and is never retried (`Attempt` in `utils/api/client.ts`).
 - Manga-site host permissions are requested at runtime (`optional_host_permissions`),
   never added statically to the manifest. Tracking is opt-in per site: the popup requests
   the permission (user gesture) and the background registers the detector for that origin.
