@@ -58,8 +58,15 @@ const CHAPTER_URL_PATTERNS: RegExp[] = [
 // Reader-style path segment, at any depth: root-level SPAs (manhwaweb:
 // /leer/, /leer_18/) and series-nested readers (lectorxd: /manhua/<slug>/leer/)
 // whose URLs may carry internal ids instead of chapter numbers.
+//
+// A segment that literally says "chapter" belongs here too, even though
+// CHAPTER_URL_PATTERNS already claims it when a number follows: on mangadex the
+// id is a uuid (/chapter/e3d4e69e-…), so the number never comes, and the page
+// was gated out for having no chapter in its url — while its og:title said
+// "… - Ch. 107 -" all along. Naming the segment is the evidence; the number is
+// only one way of confirming it.
 const READER_PATH_PATTERN =
-  /\/(?:leer|lector|read|reader|ver|viewer)(?:_\w+)?\//i;
+  /\/(?:leer|lector|read|reader|ver|viewer|cap[íi]tulo|chapter|cap|ch)(?:_\w+)?\//i;
 
 // No real chapter needs more integer digits than this; longer URL numbers are
 // internal ids (olympus: /capitulo/130729/, ikigai: /capitulo/118774…393/).
