@@ -57,11 +57,13 @@ When the window shows the library (empty on a new install), the backend is up.
 **From the Chrome Web Store** — open the app's gear icon ⚙ and press **Instalar en Chrome**
 (*Install in Chrome*). It opens the listing in that specific browser, not the default one.
 
-**While the store review is pending**, load it unpacked. The app already carries a copy, so
-there is nothing to clone or build:
+That is the normal way, and the one to use. Everything below is for running a copy of your
+own — a development build, or a version the store has not published yet. The app already
+carries a copy, so there is nothing to clone or build:
 
-1. Gear icon ⚙ → **Todavía no está aprobada: cargarla a mano** (*Not approved yet: load it by
-   hand*) → **mostrar en el Finder** (*show in Finder* / Explorer). A folder opens.
+1. Gear icon ⚙ → **Cargar una copia local en vez de la publicada** (*Load a local copy instead
+   of the published one*) → **mostrar en el Finder** (*show in Finder* / Explorer). A folder
+   opens.
 2. In the browser, go to `chrome://extensions` (Brave: `brave://extensions`, Edge:
    `edge://extensions`).
 3. Turn on **Developer mode** and press **Load unpacked**, choosing that folder.
@@ -228,10 +230,9 @@ handles reloading.
 ```
 entrypoints/
 ├─ background.ts        → service worker: the only piece that talks to the backend
-├─ content.ts           → injected on demand; returns the page's {title, url}
 ├─ detector.content.ts  → auto-detection; registered per tracked origin, SPA-aware
 ├─ calibration.content/ → two-click calibration overlay (Shadow DOM UI)
-└─ popup/               → React popup: connection status, site tracking toggle, test button
+└─ popup/               → React popup: connection status, site tracking toggle, diagnosis
 utils/
 ├─ api/types.ts         → contracts duplicated by hand from manga-tracker-api
 ├─ api/client.ts        → fetch wrapper for the backend (Result-style responses)
@@ -246,8 +247,7 @@ utils/
 ├─ messages.ts          → typed runtime messages (popup/content ↔ background)
 ├─ message-handler.ts   → background business logic (routes/service split)
 ├─ site-registration.ts → runtime content-script registration per granted origin
-├─ page-info.ts         → PageInfo type + guard shared by content/background
-└─ test-event.ts        → builds the phase-5 test event payload
+└─ site-rules.ts        → per-site rules fetched from the backend, cached for 6h
 ```
 
 ## Contract with the API

@@ -46,16 +46,3 @@
 .site.error {
   color: #d64545;
 }
-
-.result {
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-.result.ok {
-  color: #2e9e5b;
-}
-
-.result.error {
-  color: #d64545;
-}

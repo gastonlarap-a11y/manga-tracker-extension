@@ -33,14 +33,12 @@ import type {
   MessageResponses,
   RuntimeMessage,
 } from "./messages";
-import type { PageInfo } from "./page-info";
-import { isPageInfo } from "./page-info";
 import {
   ensureDetectorRegistered,
   registerSite,
   unregisterSite,
 } from "./site-registration";
-import { buildTestEventPayload } from "./test-event";
+import { rulesForDetection } from "./site-rules";
 
 const CALIBRATION_SCRIPT = "/content-scripts/calibration.js" as const;
 
@@ -62,10 +60,10 @@ export function handleMessage(
   switch (message.kind) {
     case "ping":
       return pingHealth();
-    case "send-test-event":
-      return sendTestEvent(message.tabId);
     case "get-adapter":
       return getAdapter(message.domain);
+    case "get-site-rules":
+      return rulesForDetection();
     case "record-event":
       return recordEventWithCover(message.payload);
     case "register-site":
@@ -262,35 +260,6 @@ async function coverOriginPermitted(coverUrl: string): Promise<boolean> {
     return await browser.permissions.contains({ origins: [`${origin}/*`] });
   } catch {
     return false;
-  }
-}
-
-async function sendTestEvent(
-  tabId: number,
-): Promise<ApiResult<CreateEventResponse>> {
-  const page = await collectPageInfo(tabId);
-  if (!page.ok) {
-    return page;
-  }
-  return createReadingEvent(buildTestEventPayload(page.data));
-}
-
-async function collectPageInfo(tabId: number): Promise<ApiResult<PageInfo>> {
-  try {
-    const [injection] = await browser.scripting.executeScript({
-      target: { tabId },
-      files: ["/content-scripts/content.js"],
-    });
-    const result = injection?.result;
-    if (isPageInfo(result)) {
-      return { ok: true, data: result };
-    }
-    return { ok: false, error: "Content script returned no page info" };
-  } catch (cause) {
-    return {
-      ok: false,
-      error: cause instanceof Error ? cause.message : "Script injection failed",
-    };
   }
 }
 

@@ -7,6 +7,7 @@ import type {
   LibraryEntryDto,
   MangaDto,
   SiteAdapterDto,
+  SiteRuleDto,
 } from "./types";
 
 // Where the backend lives is no longer a constant: an installed copy listens on
@@ -74,6 +75,16 @@ export function createAdapter(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Everything the backend knows about sites, in one request.
+ *
+ * One call instead of one per page load, and the source of the rules that used
+ * to have to be published through the Chrome Web Store to reach anyone.
+ */
+export function getSiteRules(): Promise<ApiResult<SiteRuleDto[]>> {
+  return request<SiteRuleDto[]>("/api/site-rules");
 }
 
 // 404 means "no adapter calibrated yet" — a normal outcome, not a failure.
