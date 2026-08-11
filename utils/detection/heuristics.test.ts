@@ -7,6 +7,7 @@ import {
   extractChapterFromUrl,
   extractSeriesSlug,
   isReaderPath,
+  seriesUrlFromChapterPath,
 } from "./heuristics";
 import type { PageSignals } from "./page-signals";
 
@@ -111,6 +112,59 @@ describe("extractSeriesSlug", () => {
     ["not a url", "invalid url"],
   ])("returns null for %s (%s)", (url) => {
     expect(extractSeriesSlug(url)).toBeNull();
+  });
+});
+
+describe("seriesUrlFromChapterPath", () => {
+  it.each([
+    [
+      "https://lectorxd.com/manhua/un-nio-criado-por-un-rey-demonio/leer/56",
+      "https://lectorxd.com/manhua/un-nio-criado-por-un-rey-demonio/",
+    ],
+    [
+      "https://mhscans.com/series/espadachin-a-tiempo-completo/capitulo-89-pack/",
+      "https://mhscans.com/series/espadachin-a-tiempo-completo/",
+    ],
+    [
+      "https://example.com/manga/one-piece/capitulo/1100?ref=home#top",
+      "https://example.com/manga/one-piece/",
+    ],
+  ])("derives the series page of %s", (url, expected) => {
+    expect(seriesUrlFromChapterPath(url)).toBe(expected);
+  });
+
+  it("gives one series page for every chapter of that series", () => {
+    // The whole point: the key has to stop moving while the <title> keeps
+    // changing from chapter to chapter.
+    expect(
+      seriesUrlFromChapterPath("https://lectorxd.com/manhua/dragona/leer/56"),
+    ).toBe(
+      seriesUrlFromChapterPath("https://lectorxd.com/manhua/dragona/leer/57"),
+    );
+  });
+
+  it.each([
+    [
+      "https://manhwaweb.com/leer/dragona_1742223256781-55",
+      "reader at the site root — every series would share one key",
+    ],
+    [
+      "https://olympusxyz.com/capitulo/126590/comic-dragona",
+      "chapter id before the series — a key per chapter",
+    ],
+    ["https://example.com/series/capitulo-12/", "section segment as slug"],
+    ["https://example.com/123456/capitulo-12/", "numeric id segment"],
+    ["not a url", "invalid url"],
+  ])("returns null for %s (%s)", (url) => {
+    expect(seriesUrlFromChapterPath(url)).toBeNull();
+  });
+
+  it("agrees with extractSeriesSlug about where the series is", () => {
+    const url = "https://mhscans.com/series/espadachin/capitulo-89/";
+    const slug = extractSeriesSlug(url);
+
+    expect(slug).not.toBeNull();
+    expect(seriesUrlFromChapterPath(url)).toContain(`/${slug}/`);
   });
 });
 

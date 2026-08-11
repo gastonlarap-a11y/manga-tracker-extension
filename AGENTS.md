@@ -68,6 +68,13 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   the permission (user gesture) and the background registers the detector for that origin.
 - Detection never auto-sends below the 0.7 confidence threshold, and a page without a
   chapter marker in its URL (catalog/home pages) is never reported.
+- **The series identity has two sources, in this order: the page's own anchor
+  (`seriesUrlFrom`), then the chapter path (`seriesUrlFromChapterPath`).** The anchor alone
+  found almost nothing — measured, 1045 of 1047 stored events carried no series key — and
+  without a key the only identity a series has is its title, so one bad title does not make
+  one junk card: it merges every reading that arrives under the same wrong name. The path
+  fallback returns `null` rather than guess (a reader at the site root, or a chapter id
+  sitting before the series), because a key two different series share is worse than none.
 - Never edit `.wxt/**` or `.output/**`; never commit `.env*` or `*.pem`.
 
 ## Architecture
