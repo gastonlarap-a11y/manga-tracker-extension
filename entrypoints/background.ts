@@ -6,18 +6,23 @@ import {
   injectDetectorIntoOpenTabs,
   syncRegisteredSites,
 } from "@/utils/site-registration";
+import { refreshRules } from "@/utils/site-rules";
 
 export default defineBackground(() => {
   // Extension reloads/updates wipe runtime-registered content scripts while
   // the granted permissions survive — re-sync on both signals. The cover
-  // byte backfill piggybacks on the same once-per-session signals.
+  // byte backfill and the site rules piggyback on the same once-per-session
+  // signals: an update is exactly when a machine may have gained a backend
+  // that knows about sites this build has never heard of.
   browser.runtime.onInstalled.addListener(() => {
     void resyncDetectors();
     void backfillMissingCovers();
+    void refreshRules();
   });
   browser.runtime.onStartup.addListener(() => {
     void resyncDetectors();
     void backfillMissingCovers();
+    void refreshRules();
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {

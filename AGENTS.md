@@ -68,8 +68,18 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   the permission (user gesture) and the background registers the detector for that origin.
 - Detection never auto-sends below the 0.7 confidence threshold, and a page without a
   chapter marker in its URL (catalog/home pages) is never reported.
-- **The series identity has two sources, in this order: the page's own anchor
-  (`seriesUrlFrom`), then the chapter path (`seriesUrlFromChapterPath`).** The anchor alone
+- **What this extension knows about individual sites comes from the backend** (`utils/site-rules.ts`
+  ← `GET /api/site-rules`), never compiled in. Publishing here costs a Chrome Web Store review,
+  so a regex for one new site used to mean days of waiting; the backend ships with the desktop
+  app and lands on the machine at its next update. Rules are cached for 6h and refreshed on
+  `onInstalled`/`onStartup` — **a detection never waits on the network for them**, and with no
+  cache at all everything degrades to the generic heuristics. A rule belongs in the backend's
+  catalogue, not here.
+- **The series identity has three sources, in this order: a curated rule from the backend, the
+  page's own anchor (`seriesUrlFrom`), then the chapter path (`seriesUrlFromChapterPath`).**
+  A rule that *composes* an identity rather than finding one carries `navigable: false`, and
+  that URL is kept away from the cover hunt: it fetches the series page, and asking a site for
+  an address it never published reads as "this manga has no cover". The anchor alone
   found almost nothing — measured, 1045 of 1047 stored events carried no series key — and
   without a key the only identity a series has is its title, so one bad title does not make
   one junk card: it merges every reading that arrives under the same wrong name. The path

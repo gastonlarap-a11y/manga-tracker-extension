@@ -6,12 +6,12 @@ describe("isRuntimeMessage", () => {
     expect(isRuntimeMessage({ kind: "ping" })).toBe(true);
   });
 
-  it("accepts a send-test-event message with a numeric tabId", () => {
-    expect(isRuntimeMessage({ kind: "send-test-event", tabId: 3 })).toBe(true);
+  it("accepts a tab-scoped message with a numeric tabId", () => {
+    expect(isRuntimeMessage({ kind: "get-detection", tabId: 3 })).toBe(true);
   });
 
-  it("rejects a send-test-event message without tabId", () => {
-    expect(isRuntimeMessage({ kind: "send-test-event" })).toBe(false);
+  it("rejects a tab-scoped message without tabId", () => {
+    expect(isRuntimeMessage({ kind: "get-detection" })).toBe(false);
   });
 
   it("accepts a get-adapter message with a domain", () => {

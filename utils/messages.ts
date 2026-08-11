@@ -8,6 +8,7 @@ import type {
   LibraryEntryDto,
   MangaDto,
   SiteAdapterDto,
+  SiteRuleDto,
 } from "./api/types";
 import type { CoverRect } from "./cover-pixels";
 import type { Detection } from "./detection/heuristics";
@@ -20,8 +21,10 @@ import type { DetectorRepair } from "./site-registration";
 
 export type RuntimeMessage =
   | { kind: "ping" }
-  | { kind: "send-test-event"; tabId: number }
   | { kind: "get-adapter"; domain: string }
+  // Served from the background's cache: only it may fetch, and a detection
+  // must not wait on the network to find out how a site names its series.
+  | { kind: "get-site-rules" }
   | { kind: "record-event"; payload: CreateEventBody }
   | { kind: "register-site"; originPattern: string; tabId: number }
   | { kind: "unregister-site"; originPattern: string }
@@ -60,8 +63,10 @@ export type RuntimeMessage =
 
 export interface MessageResponses {
   ping: ApiResult<HealthResponse>;
-  "send-test-event": ApiResult<CreateEventResponse>;
   "get-adapter": ApiResult<SiteAdapterDto | null>;
+  // An empty list, never a failure: with no rules, detection uses the generic
+  // heuristics, which is what every site got before the catalogue existed.
+  "get-site-rules": SiteRuleDto[];
   "record-event": ApiResult<CreateEventResponse>;
   "register-site": ApiResult<null>;
   "unregister-site": ApiResult<null>;
@@ -100,8 +105,8 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case "ping":
     case "get-library":
     case "backfill-covers":
+    case "get-site-rules":
       return true;
-    case "send-test-event":
     case "get-detection":
     case "start-calibration":
       return "tabId" in value && typeof value.tabId === "number";

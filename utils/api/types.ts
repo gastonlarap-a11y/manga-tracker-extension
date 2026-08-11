@@ -78,6 +78,32 @@ export interface SiteAdapterDto {
   updatedAt: string;
 }
 
+/** How a site's URLs name a series, when the generic heuristics cannot tell. */
+export interface SeriesRuleDto {
+  /** Matched against the chapter URL; group 1 identifies the series. */
+  pattern: string;
+  /** Composes the series URL, with `$1` for the captured group. */
+  template: string;
+  /**
+   * Whether the composed URL is a page that exists. False where the identity
+   * had to be assembled: good enough to key a series, not to fetch a cover
+   * from.
+   */
+  navigable: boolean;
+}
+
+/**
+ * Everything the backend knows about one site: the curated rule and, if this
+ * machine calibrated the site, its selectors. Either half may be absent.
+ */
+export interface SiteRuleDto {
+  domain: string;
+  series: SeriesRuleDto | null;
+  titleSelector: string | null;
+  chapterSelector: string | null;
+  chapterUrlRegex: string | null;
+}
+
 export interface HealthResponse {
   status: "ok";
   /**

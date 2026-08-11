@@ -18,6 +18,7 @@ import {
 import { seriesUrlFrom } from "@/utils/detection/page-signals";
 import type { CoverHealStatus } from "@/utils/detection-log";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
+import { ruleForHost, seriesFromRule } from "@/utils/site-rules";
 
 // SPAs swap content without reloading; wait for the page to settle before
 // detecting (project plan, phase 6/8).
@@ -84,12 +85,21 @@ export default defineContentScript({
       }
 
       // Stable identity within this site, independent of how the site writes
-      // its <title> today. The anchor comes first because it is evidence the
-      // page itself gives; the path is the fallback for the sites that expose
-      // no such link, which turned out to be almost all of them. Omitted when
-      // neither can say.
+      // its <title> today. Three sources, in order of how much they know:
+      // a curated rule from the backend is a deliberate statement about this
+      // site; the anchor is evidence the page itself gives; the path is the
+      // generic guess. Omitted when none of them can say.
+      const rules = await sendRuntimeMessage({ kind: "get-site-rules" });
+      const rule = ruleForHost(rules, location.hostname);
+      const ruled = rule === null ? null : seriesFromRule(rule, url);
+      const anchorUrl = seriesUrlFrom(document, url);
       const seriesUrl =
-        seriesUrlFrom(document, url) ?? seriesUrlFromChapterPath(url);
+        ruled?.url ?? anchorUrl ?? seriesUrlFromChapterPath(url);
+      // What the cover hunt may download. A rule that composes an identity
+      // rather than finding one names no page, and asking the site for it
+      // would read as "this manga has no cover".
+      const coverSeriesUrl =
+        ruled !== null && !ruled.navigable ? anchorUrl : seriesUrl;
       const recorded = await sendRuntimeMessage({
         kind: "record-event",
         payload: {
@@ -123,7 +133,7 @@ export default defineContentScript({
             detection.mangaName,
             detection.chapterLabel,
             url,
-            seriesUrl,
+            coverSeriesUrl,
           );
         } else if (!manga.hasStoredCover) {
           // Heal pending cover bytes right where the user reads: a chapter

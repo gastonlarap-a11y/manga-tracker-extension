@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { browser } from "#imports";
-import type { CreateEventResponse } from "@/utils/api/types";
 import { trackingOriginPatterns } from "@/utils/base-domain";
 import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
 import type { CoverHealStatus, DetectionEntry } from "@/utils/detection-log";
@@ -11,12 +10,6 @@ type ConnectionState =
   | { kind: "checking" }
   | { kind: "connected" }
   | { kind: "disconnected"; error: string };
-
-type TestEventState =
-  | { kind: "idle" }
-  | { kind: "sending" }
-  | { kind: "sent"; data: CreateEventResponse }
-  | { kind: "failed"; error: string };
 
 type SiteState =
   | { kind: "loading" }
@@ -99,7 +92,6 @@ export function App() {
     kind: "checking",
   });
   const [site, setSite] = useState<SiteState>({ kind: "loading" });
-  const [testEvent, setTestEvent] = useState<TestEventState>({ kind: "idle" });
 
   useEffect(() => {
     let cancelled = false;
@@ -244,27 +236,6 @@ export function App() {
     });
   }
 
-  async function sendTestEvent(): Promise<void> {
-    setTestEvent({ kind: "sending" });
-    const [tab] = await browser.tabs.query({
-      active: true,
-      currentWindow: true,
-    });
-    if (tab?.id === undefined) {
-      setTestEvent({ kind: "failed", error: "No hay pestaña activa" });
-      return;
-    }
-    const result = await sendRuntimeMessage({
-      kind: "send-test-event",
-      tabId: tab.id,
-    });
-    setTestEvent(
-      result.ok
-        ? { kind: "sent", data: result.data }
-        : { kind: "failed", error: result.error },
-    );
-  }
-
   return (
     <main className="popup">
       <h1>Manga Tracker</h1>
@@ -277,16 +248,6 @@ export function App() {
         onDisable={(current) => void disableTracking(current)}
         onCalibrate={(current) => void startCalibration(current)}
       />
-      <button
-        type="button"
-        disabled={
-          connection.kind !== "connected" || testEvent.kind === "sending"
-        }
-        onClick={() => void sendTestEvent()}
-      >
-        {testEvent.kind === "sending" ? "Enviando…" : "Enviar evento test"}
-      </button>
-      <TestEventResult state={testEvent} />
     </main>
   );
 }
@@ -488,22 +449,5 @@ function describeDetection(entry: DetectionEntry): string {
       return 'El título de la página no nombra el capítulo — usá "Calibrar detección".';
     case "no-title":
       return 'La página no expone un título utilizable — usá "Calibrar detección".';
-  }
-}
-
-function TestEventResult({ state }: { state: TestEventState }) {
-  switch (state.kind) {
-    case "idle":
-    case "sending":
-      return null;
-    case "sent":
-      return (
-        <p className="result ok">
-          Registrado: <strong>{state.data.manga.canonicalName}</strong> —{" "}
-          {state.data.event.chapterLabel}
-        </p>
-      );
-    case "failed":
-      return <p className="result error">Error: {state.error}</p>;
   }
 }

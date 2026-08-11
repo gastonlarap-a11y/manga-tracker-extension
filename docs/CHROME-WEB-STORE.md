@@ -42,9 +42,20 @@ cuyo manifest declare `key` — el error es literalmente *"key field not allowed
 (`cfjiinlnepkmlaafdclmlpjbmpofplop`), así que no se puede borrar del repo: `zip:store` lo saca
 sólo del paquete de tienda, y el build local lo conserva.
 
-Consecuencia directa: **la tienda te va a asignar un id distinto**. Por eso el backend acepta
-una lista de ids (`EXTENSION_IDS`) en vez de uno solo — las dos versiones conviven mientras
-migrás.
+Consecuencia directa: **la tienda te asigna un id distinto**. Ya lo hizo:
+`acopmmaenbjdpcjcaiadcpdniomkikbd`, publicada el 10 de agosto de 2026. Por eso el backend
+acepta una lista de ids (`EXTENSION_IDS`) en vez de uno solo, y por eso los dos —el local y el
+publicado— siguen conviviendo sin que haya que elegir.
+
+**Pendiente:** pegar la public key que asignó la tienda (Dashboard → Package → View public key)
+en `UNPACKED_KEY` de `wxt.config.ts` para que ambos builds converjan en un id. No corre prisa:
+mientras tanto las dos versiones funcionan, porque `DEFAULT_EXTENSION_IDS` en el backend
+(`src/lib/cors.ts`) lista las dos.
+
+**Y una restricción que condiciona todo lo demás:** una versión en revisión **no se puede
+reemplazar**. Hay que esperar a que la tienda termine, y volver a subir mientras tanto
+reinicia el reloj y puede marcar la cuenta. De ahí que los cambios se junten en un lote en vez
+de subirse de a uno.
 
 Podés comprobar el paquete antes de subirlo:
 

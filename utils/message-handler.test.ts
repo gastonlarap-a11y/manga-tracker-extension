@@ -69,47 +69,6 @@ describe("handleMessage", () => {
     expect(response).toEqual({ ok: true, data: { status: "ok" } });
   });
 
-  it("collects page info via the content script and posts the test event", async () => {
-    executeScriptMock.mockResolvedValue([
-      { result: { title: "One Piece", url: "https://example.com/one-piece" } },
-    ]);
-    const created = { manga: { id: "m1" }, event: { id: "e1" } };
-    fetchMock.mockResolvedValue(jsonResponse(created, 201));
-
-    const response = await handleMessage({ kind: "send-test-event", tabId: 7 });
-
-    expect(executeScriptMock).toHaveBeenCalledWith({
-      target: { tabId: 7 },
-      files: ["/content-scripts/content.js"],
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:5150/api/events",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          mangaName: "One Piece",
-          chapterLabel: "Cap. 0 (evento test)",
-          sourceUrl: "https://example.com/one-piece",
-        }),
-      }),
-    );
-    expect(response).toEqual({ ok: true, data: created });
-  });
-
-  it("reports the failure when the script cannot be injected", async () => {
-    executeScriptMock.mockRejectedValue(
-      new Error("Cannot access a chrome:// URL"),
-    );
-
-    const response = await handleMessage({ kind: "send-test-event", tabId: 7 });
-
-    expect(response).toEqual({
-      ok: false,
-      error: "Cannot access a chrome:// URL",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it("routes get-adapter to the backend and maps a 404 to null", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: "Adapter not found" }, 404),
@@ -146,18 +105,6 @@ describe("handleMessage", () => {
       }),
     );
     expect(response).toEqual({ ok: true, data: created });
-  });
-
-  it("rejects a content script result that is not page info", async () => {
-    executeScriptMock.mockResolvedValue([{ result: null }]);
-
-    const response = await handleMessage({ kind: "send-test-event", tabId: 7 });
-
-    expect(response).toEqual({
-      ok: false,
-      error: "Content script returned no page info",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stores a reported detection under the sender tab and serves it back", async () => {
