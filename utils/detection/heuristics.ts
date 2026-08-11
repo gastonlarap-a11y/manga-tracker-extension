@@ -167,33 +167,68 @@ function isPlausibleChapter(chapter: string): boolean {
   return integerPart.length <= MAX_URL_CHAPTER_DIGITS;
 }
 
+// Where the series ends and the chapter begins: the path up to and including
+// the segment right before the chapter marker (/series/<slug>/capitulo-89/ →
+// slug "<slug>", prefix "/series/<slug>"). Section names and numeric ids are
+// not a series.
+//
+// The two callers below both need this split — one for the name, one for the
+// URL — and they must never disagree about it, so it is computed once here.
+function seriesPathPrefix(
+  url: string,
+): { origin: string; prefix: string; slug: string } | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  for (const pattern of CHAPTER_URL_PATTERNS) {
+    const match = pattern.exec(parsed.pathname);
+    if (match?.[1]) {
+      const prefix = parsed.pathname.slice(0, match.index);
+      const slug = prefix.split("/").filter(Boolean).at(-1);
+      if (
+        slug === undefined ||
+        SECTION_SEGMENTS.has(slug.toLowerCase()) ||
+        !/[a-z]/i.test(slug)
+      ) {
+        return null;
+      }
+      return { origin: parsed.origin, prefix, slug };
+    }
+  }
+  return null;
+}
+
 // The path segment right before the chapter marker is usually the series slug
 // (/series/<slug>/capitulo-89/). Section names and numeric ids are not
 // usable as a title.
 export function extractSeriesSlug(url: string): string | null {
-  const pathname = pathnameOf(url);
-  if (pathname === null) {
+  return seriesPathPrefix(url)?.slug ?? null;
+}
+
+/**
+ * The series page this chapter URL hangs off, when the path says where it is
+ * (https://lectorxd.com/manhua/<slug>/leer/56 → https://lectorxd.com/manhua/<slug>/).
+ *
+ * The fallback for `seriesUrlFrom`, which needs an anchor back to the series and
+ * so finds nothing on most sites — measured, 1045 of 1047 stored events carried
+ * no series key at all. Without one the only identity a series has is its title,
+ * so a single bad title does not produce one junk card: it merges whatever else
+ * arrives under the same wrong name.
+ *
+ * Null whenever the path does not say: a reader at the site root
+ * (/leer/<slug>_<id>-55) or a chapter id before the series (/capitulo/<id>/<slug>)
+ * would otherwise mint a key that two different series share, which is worse
+ * than having none.
+ */
+export function seriesUrlFromChapterPath(url: string): string | null {
+  const series = seriesPathPrefix(url);
+  if (series === null) {
     return null;
   }
-  for (const pattern of CHAPTER_URL_PATTERNS) {
-    const match = pattern.exec(pathname);
-    if (match?.[1]) {
-      const segments = pathname
-        .slice(0, match.index)
-        .split("/")
-        .filter(Boolean);
-      const candidate = segments.at(-1);
-      if (
-        candidate === undefined ||
-        SECTION_SEGMENTS.has(candidate.toLowerCase()) ||
-        !/[a-z]/i.test(candidate)
-      ) {
-        return null;
-      }
-      return candidate;
-    }
-  }
-  return null;
+  return `${series.origin}${series.prefix}/`;
 }
 
 function humanizeSlug(slug: string): string {

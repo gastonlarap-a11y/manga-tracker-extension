@@ -11,7 +11,10 @@ import {
   pickSeriesPageCover,
 } from "@/utils/detection/cover-hunt";
 import { detectReading } from "@/utils/detection/detect";
-import { CONFIDENCE_THRESHOLD } from "@/utils/detection/heuristics";
+import {
+  CONFIDENCE_THRESHOLD,
+  seriesUrlFromChapterPath,
+} from "@/utils/detection/heuristics";
 import { seriesUrlFrom } from "@/utils/detection/page-signals";
 import type { CoverHealStatus } from "@/utils/detection-log";
 import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
@@ -81,8 +84,12 @@ export default defineContentScript({
       }
 
       // Stable identity within this site, independent of how the site writes
-      // its <title> today. Omitted when the page has no link back to a series.
-      const seriesUrl = seriesUrlFrom(document, url);
+      // its <title> today. The anchor comes first because it is evidence the
+      // page itself gives; the path is the fallback for the sites that expose
+      // no such link, which turned out to be almost all of them. Omitted when
+      // neither can say.
+      const seriesUrl =
+        seriesUrlFrom(document, url) ?? seriesUrlFromChapterPath(url);
       const recorded = await sendRuntimeMessage({
         kind: "record-event",
         payload: {
