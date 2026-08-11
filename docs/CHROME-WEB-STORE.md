@@ -47,10 +47,21 @@ Consecuencia directa: **la tienda te asigna un id distinto**. Ya lo hizo:
 acepta una lista de ids (`EXTENSION_IDS`) en vez de uno solo, y por eso los dos —el local y el
 publicado— siguen conviviendo sin que haya que elegir.
 
-**Pendiente:** pegar la public key que asignó la tienda (Dashboard → Package → View public key)
-en `UNPACKED_KEY` de `wxt.config.ts` para que ambos builds converjan en un id. No corre prisa:
-mientras tanto las dos versiones funcionan, porque `DEFAULT_EXTENSION_IDS` en el backend
-(`src/lib/cors.ts`) lista las dos.
+**Los dos ids se quedan así, a propósito.** Se puede converger —pegando la public key de la
+tienda en `UNPACKED_KEY` de `wxt.config.ts`, que es lo que este documento daba antes por
+pendiente— pero no arregla nada: el backend ya acepta las dos
+(`DEFAULT_EXTENSION_IDS` en `src/lib/cors.ts`), así que ninguna de las dos versiones queda
+muda. Y cuesta algo real: con ids distintos podés tener instalada la publicada **y** una copia
+local a la vez, que es exactamente lo que hace falta para probar un cambio sin desinstalar la
+que usás todos los días. Un id compartido pondría a las dos a disputarse el mismo lugar.
+
+Si algún día hiciera falta, la public key de la tienda no hay que ir a buscarla a la consola:
+viaja dentro de la extensión instalada, en el manifest que el navegador deja en disco
+(`…/Extensions/<id>/<versión>/manifest.json`). El id es su hash, así que se comprueba sola:
+
+```bash
+echo -n "<key>" | base64 -d | shasum -a 256 | cut -c1-32 | tr '0-9a-f' 'a-p'
+```
 
 **Y una restricción que condiciona todo lo demás:** una versión en revisión **no se puede
 reemplazar**. Hay que esperar a que la tienda termine, y volver a subir mientras tanto
