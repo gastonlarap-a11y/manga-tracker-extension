@@ -7,7 +7,7 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 
 ## Layout
 - `entrypoints/` — WXT file-based entrypoints: `background.ts` (service worker),
-  `content.ts` (page-info probe), `detector.content.ts` (auto-detection) and
+  `detector.content.ts` (auto-detection) and
   `calibration.content/` (two-click calibration overlay in a Shadow DOM via
   `createShadowRootUi`); all content scripts are `registration: "runtime"`, injected on
   demand. `popup/` (React)
@@ -31,9 +31,10 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - `wxt.config.ts` — manifest definition (permissions, fixed `key` for the stable id)
 - `.wxt/` — generated types (`wxt prepare`); never edit, gitignored
 - `.output/` — build output; `chrome-mv3-dev/` (dev) and `chrome-mv3/` (build), gitignored.
-  `wxt build` wipes this directory, so the browser never loads from here: `bun run
-  install:local` syncs it into `~/Library/Application Support/MangaTracker/extension/`,
-  which is the path loaded unpacked
+  `wxt build` wipes this directory, so a stable copy is loaded unpacked instead: `bun run
+  install:local` (`scripts/install-local.ts`) swaps the build into the `extension` folder
+  beside the backend's data — `~/Library/Application Support/MangaTracker/` on macOS,
+  `%APPDATA%\MangaTracker\` on Windows
 
 ## Commands
 - Test: `bun run test` (vitest, not `bun test`) · Single test: `bunx vitest run <file>`
@@ -55,8 +56,9 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   The **store** build is the one exception — `bun run zip:store` drops `key`, because the
   Web Store rejects a first upload that declares one ("key field not allowed in manifest")
   and assigns an id of its own. That is why the API's allowlist is a list (`EXTENSION_IDS`)
-  and not a constant: the two ids coexist until the store's public key is pasted back here.
-  See `docs/CHROME-WEB-STORE.md`.
+  and not a constant: the two ids coexist, **by decision** — a developer build and the store
+  build installed side by side stay two extensions, which is what testing one against the
+  other needs. See `docs/CHROME-WEB-STORE.md`.
 - **The backend's port is discovered, never assumed.** The search is bounded by a contract
   with the installer: **ports 5150–5159** (`utils/api/ports.ts`), and a candidate only counts
   if `GET /health` returns `service: "manga-tracker-api"`. That name is mandatory on every

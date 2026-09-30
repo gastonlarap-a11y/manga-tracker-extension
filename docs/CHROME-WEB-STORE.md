@@ -102,7 +102,7 @@ Registra qué manga y qué capítulo estás leyendo y lo guarda en tu propia com
 ### Descripción detallada
 
 Arranca diciendo qué hace, que es lo que pide Google, y dedica un bloque entero a que
-**necesita la aplicación de escritorio**: sin eso, quien la instale ve "desconectado" y
+**necesita la aplicación de escritorio**: sin eso, quien la instale ve "Sin conexión" y
 concluye que está rota.
 
 ```
@@ -124,9 +124,9 @@ IMPORTANTE: NECESITA LA APLICACIÓN DE ESCRITORIO
 
 Esta extensión es la mitad que vive en el navegador. La otra mitad es una aplicación que
 corre en tu propia computadora y es la que guarda tu biblioteca. Sin ella instalada, la
-extensión indica "desconectado" y no registra nada.
+extensión indica "Sin conexión" y las lecturas esperan en el navegador hasta que esté.
 
-Se instala desde: https://github.com/gastonlarap-a11y/manga-tracker-api
+Se instala desde: https://github.com/gastonlarap-a11y/manga-tracker-desktop/releases/latest
 
 PRIVACIDAD
 
@@ -140,7 +140,8 @@ CÓDIGO ABIERTO
 
 Todo lo anterior se puede verificar leyendo el código:
 • Extensión: https://github.com/gastonlarap-a11y/manga-tracker-extension
-• Aplicación: https://github.com/gastonlarap-a11y/manga-tracker-api
+• Aplicación: https://github.com/gastonlarap-a11y/manga-tracker-desktop
+• Servidor local que instala: https://github.com/gastonlarap-a11y/manga-tracker-api
 ```
 
 ### Categoría

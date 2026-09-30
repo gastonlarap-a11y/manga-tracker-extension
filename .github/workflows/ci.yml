@@ -26,7 +26,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: false # PR comments would need pull-requests: write
 
+      # Pinned to the Bun the desktop release bundles (its sources.json), so
+      # what CI proves is what ships rather than whatever is newest today.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
 
       - name: Cache Bun dependencies
         uses: actions/cache@v6
@@ -44,3 +48,21 @@ jobs:
       - run: bun run typecheck
 
       - run: bun run test
+
+      # The package is what reaches people, and nothing above builds it: a
+      # manifest error or a bundling failure used to surface only at upload.
+      - run: bun run build
+
+      # The store zip must not declare `key` — the Web Store rejects an upload
+      # that does — and must keep the permissions the privacy docs justify.
+      - name: Check the store package
+        run: |
+          set -euo pipefail
+          bun run zip:store
+          zip=$(ls .output/*-chrome.zip | sort -V | tail -1)
+          unzip -p "$zip" manifest.json > store-manifest.json
+          bun -e '
+            const m = await Bun.file("store-manifest.json").json();
+            if ("key" in m) throw new Error("the store manifest declares key");
+            console.log(`store package ok: ${m.version}, ${m.host_permissions.length} host patterns`);
+          '

@@ -141,6 +141,7 @@ function libraryEntry(overrides: Partial<LibraryEntryDto>): LibraryEntryDto {
     lastSourceUrl: null,
     readCount: 0,
     sourceDomains: [],
+    aliasCount: 0,
     ...overrides,
   };
 }

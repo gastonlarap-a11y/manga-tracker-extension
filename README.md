@@ -13,8 +13,9 @@ destination is `http://localhost` — your own machine.
 ## ⚠️ It needs the companion app
 
 This extension is the half that lives in the browser. The other half runs on your computer and
-holds the library. **Without it, the popup says `desconectado` (disconnected) and nothing is
-recorded. That is the expected behaviour, not a failure.**
+holds the library. **Without it, the popup says `Sin conexión` (no connection) and the library
+does not fill up** — readings wait in the browser and are delivered once the app is there.
+That is the expected behaviour, not a failure.
 
 You do **not** have to build anything to get it: there is an installer.
 
@@ -75,7 +76,7 @@ carries a copy, so there is nothing to clone or build:
 
 Open the extension popup. It should say **Conectado** (*connected*) in green.
 
-If it says `desconectado`, the backend is not answering — go back to step 2. The extension
+If it says `Sin conexión`, the backend is not answering — go back to step 2. The extension
 looks for it on ports 5150-5159, so it keeps working when an installer had to pick a different
 one.
 
@@ -209,10 +210,10 @@ disappears from the list and has to be loaded again by hand.
 
 Load it from a stable directory instead:
 
-1. Run `bun run install:local`. It builds and then syncs the output into
-   `~/Library/Application Support/MangaTracker/extension/` (next to the backend's database).
-   The sync uses `rsync --delete-after`, so that directory always holds a complete, loadable
-   extension — it is never emptied, not even for an instant.
+1. Run `bun run install:local`. It builds and then copies the output into the `extension`
+   folder next to the backend's database — `~/Library/Application Support/MangaTracker/` on
+   macOS, `%APPDATA%\MangaTracker\` on Windows. The copy is made beside it and swapped in
+   with a rename, so the browser never finds a half-copied extension.
 2. Open `chrome://extensions` (Chrome) or `brave://extensions` (Brave), enable **Developer
    mode**, click **Load unpacked** and pick that directory. You only do this once; afterwards
    `bun run install:local` + **Reload** on the extension card is enough.

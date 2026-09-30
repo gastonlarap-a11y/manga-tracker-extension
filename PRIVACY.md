@@ -73,7 +73,8 @@ Both the extension and the companion application are open source. Anything state
 be verified in the code:
 
 - Extension: https://github.com/gastonlarap-a11y/manga-tracker-extension
-- Companion application: https://github.com/gastonlarap-a11y/manga-tracker-api
+- Companion application: https://github.com/gastonlarap-a11y/manga-tracker-desktop, which
+  installs the local server, https://github.com/gastonlarap-a11y/manga-tracker-api
 
 ## Contact
 

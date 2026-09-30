@@ -52,6 +52,7 @@ const createEventResponse: CreateEventResponse = {
     status: "reading",
     tags: [],
     createdAt: "2026-07-16T12:00:00.000Z",
+    mergedIntoSlug: null,
   },
   event: {
     id: "event-1",
