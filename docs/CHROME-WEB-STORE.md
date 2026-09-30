@@ -130,9 +130,11 @@ Se instala desde: https://github.com/gastonlarap-a11y/manga-tracker-api
 
 PRIVACIDAD
 
-La extensión no manda nada a internet. Su única salida es http://localhost, es decir tu
-propia máquina. No hay cuentas, ni telemetría, ni analítica, ni servicios de terceros. No se
-recolecta ni se comparte ningún dato.
+Tus lecturas sólo se envían a http://localhost, es decir a tu propia máquina. Lo único
+que la extensión descarga de internet es la página de la serie y la imagen de portada,
+desde los sitios que vos habilitaste, para mostrar la portada. No hay cuentas, ni
+telemetría, ni analítica, ni servicios de terceros. No se recolecta ni se comparte
+ningún dato.
 
 CÓDIGO ABIERTO
 
@@ -266,8 +268,18 @@ Copiá cada una en su campo. Están en inglés a propósito: las lee un revisor 
 
 **`storage`**
 ```
-Stores the local port number that the companion application is listening on, so the
-extension does not have to probe for it on every request. No user data is stored.
+Stores, locally in the browser: the port the companion application on the user's own
+computer listens on, a cache of per-site parsing rules that application serves, and
+readings made while that application was not answering, kept only until they are
+delivered to it over localhost. Nothing stored is sent anywhere else.
+```
+
+**`alarms`** (desde 0.1.3)
+```
+Retries delivering readings that could not reach the companion application on the
+user's own computer, for example while it restarts after an update. The alarm exists
+only while such readings are waiting, fires once a minute, and is cleared as soon as
+they are delivered.
 ```
 
 **`activeTab`**
@@ -284,17 +296,18 @@ the two-click calibration overlay when the user chooses to calibrate a site manu
 
 **`host_permissions` — `http://localhost/*`**
 ```
-The extension's only network destination is the companion application running on the same
-machine, over the loopback interface. The port is not fixed because the installer picks a
-free one, so the pattern must cover any port on localhost. This grants no access to any
-remote server.
+Readings are sent only to the companion application running on the same machine, over the
+loopback interface. The port is not fixed because the installer picks a free one, so the
+pattern must cover any port on localhost. This grants no access to any remote server.
 ```
 
 **Permisos opcionales — `https://*/*` y `http://*/*`**
 ```
 Requested at runtime, one site at a time, only when the user turns on tracking for that
 site. They are declared as optional_host_permissions precisely so that no broad access is
-granted at install time: a site the user never enabled is never accessed.
+granted at install time: a site the user never enabled is never accessed. On an enabled
+site they let the extension read the tracked page and download the series' cover image
+from that site.
 ```
 
 ### Declaración de uso de datos
@@ -327,23 +340,26 @@ Después: **Submit for review**.
 
 ---
 
-## 7. Qué me tenés que devolver
+## 7. Publicar una actualización
 
-Cuando la aprueben, la URL va a ser:
+La primera versión se aprobó el 2026-08-10 con la id `acopmmaenbjdpcjcaiadcpdniomkikbd`, que
+ya está en `EXTENSION_IDS` (backend) y en `StoreURL` (app de escritorio). Cada versión nueva:
 
-```
-https://chromewebstore.google.com/detail/<ID-QUE-ASIGNA-LA-TIENDA>
-```
+1. Subir `version` en `package.json` en un PR propio: la tienda sólo acepta una versión mayor
+   que la publicada.
+2. `bun run zip:store` y, **enseguida**, `bun run build`. El primero deja en `.output/chrome-mv3`
+   un manifest sin `key`, y una copia unpacked cargada desde ahí cambiaría de id al recargarla.
+3. **Package → Upload new package** con `.output/manga-tracker-extension-<versión>-chrome.zip`.
+4. Si cambió algún permiso: su justificación en **Privacy practices** (sección 5), y la tabla
+   de `PRIVACY.md` en el mismo PR que el permiso. Un permiso con advertencia de instalación
+   desactiva la extensión hasta que cada usuario lo acepte; uno sin advertencia, como
+   `alarms`, se instala en silencio.
+5. **Submit for review**. Con "publicar automáticamente" desmarcado queda lista para publicar
+   durante 30 días. Una versión en revisión no se puede reemplazar: si hay que corregir algo,
+   es otra versión y la revisión vuelve a empezar.
 
-Pasame ese **ID** (los 32 caracteres). Con eso:
-
-1. Lo agrego a `EXTENSION_IDS` junto al actual, así conviven las dos versiones.
-2. La app de escritorio usa esa URL para el botón *"Instalar en Chrome/Brave/Edge"*, que abre
-   el navegador elegido directo en tu ficha: tu amigo sólo aprieta **Añadir a Chrome**.
-
-Y si querés que el id vuelva a ser uno solo: en **Package → View public key**, copiá la clave y
-pegámela — la pongo en `wxt.config.ts` y a partir de ahí el build local y el de tienda comparten
-id.
+Las dos ids siguen siendo una decisión, no una tarea pendiente: el build unpacked conserva su
+`key` y el de la tienda no la lleva.
 
 ---
 
