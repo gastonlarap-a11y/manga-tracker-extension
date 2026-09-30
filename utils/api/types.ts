@@ -16,6 +16,8 @@ export interface MangaDto {
   status: MangaStatus;
   tags: string[];
   createdAt: string;
+  // The canonical this manga was merged into, or null when it owns its card.
+  mergedIntoSlug: string | null;
 }
 
 export interface ReadingEventDto {
@@ -63,6 +65,8 @@ export interface LibraryEntryDto {
   lastSourceUrl: string | null;
   readCount: number;
   sourceDomains: string[];
+  // How many mangas were merged into this card.
+  aliasCount: number;
 }
 
 export interface CreateAdapterBody {

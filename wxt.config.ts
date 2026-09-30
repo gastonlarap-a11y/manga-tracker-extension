@@ -7,9 +7,10 @@ import { candidatePorts } from "./utils/api/ports";
  * store build drops it and the local build keeps it — same source, two ids,
  * which is exactly why the API accepts a list of them (EXTENSION_IDS).
  *
- * `bun run zip:store` sets this. Once the store has assigned the id, its public
- * key can be pasted back here (Dashboard → Package → View public key) and both
- * builds converge on one id again.
+ * `bun run zip:store` sets this. The two ids stay two on purpose: the store's
+ * public key could be pasted here to make them one, but then a developer build
+ * and the published one could not be installed side by side. The API accepts
+ * both, and so does the desktop app's allowlist.
  */
 const forStore = process.env.STORE_BUILD === "1";
 

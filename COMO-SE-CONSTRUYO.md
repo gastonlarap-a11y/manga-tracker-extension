@@ -1,5 +1,10 @@
 # Cómo se construyó manga-tracker-extension
 
+> **Crónica, no referencia.** Cuenta la construcción en el orden en que ocurrió, y algunas
+> piezas ya cambiaron: `content.ts` no existe, `get-adapter` es `get-selectors` (con caché
+> para cuando el backend no responde), `host_permissions` son los puertos 5150-5159 y hay
+> un outbox de lecturas. El estado actual es el de `AGENTS.md` y `git log`.
+
 Crónica completa de la construcción de la extensión, paso a paso y en el **orden real** en
 que ocurrió (la columna vertebral es el historial de git: `git log --oneline --reverse`).
 Para cada paso: qué se hizo, con qué comando, por qué en ese momento y no en otro, qué
