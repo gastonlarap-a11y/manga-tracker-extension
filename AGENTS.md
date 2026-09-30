@@ -82,6 +82,10 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - Retrying a request on a rediscovered port is only safe when the fetch itself threw —
   nothing reached a server, so a reading event cannot be posted twice. An HTTP error is an
   answer and is never retried (`Attempt` in `utils/api/client.ts`).
+- `calibration.css` is web-accessible **without** `use_dynamic_url`, by decision (see the
+  comment in `wxt.config.ts`): the only gain is that a site cannot probe for the file, and a
+  failure would be an unstyled overlay that WXT reports nowhere. Revisit only with a manual
+  check of the calibration overlay in Chrome and Brave before the store upload.
 - Manga-site host permissions are requested at runtime (`optional_host_permissions`),
   never added statically to the manifest. Tracking is opt-in per site: the popup requests
   the permission (user gesture) and the background registers the detector for that origin.
