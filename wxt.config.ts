@@ -46,6 +46,14 @@ export default defineConfig({
     // cannot infer which sites may load its CSS and emits an empty `matches`
     // (= no site can → createShadowRootUi fails silently everywhere). Declare
     // it ourselves for any tracked site.
+    //
+    // Deliberately without `use_dynamic_url`. It would stop a site from
+    // probing for this file to learn the extension is installed, which is the
+    // whole of what it buys. What it risks: WXT fetches this CSS through
+    // runtime.getURL, Chromium has shipped regressions in exactly that path
+    // for dynamic URLs, and WXT swallows the failure — the overlay would open
+    // unstyled with nothing on screen or in the console to say why. Not worth
+    // a store version that could only be checked by hand in each browser.
     web_accessible_resources: [
       {
         resources: ["content-scripts/calibration.css"],
