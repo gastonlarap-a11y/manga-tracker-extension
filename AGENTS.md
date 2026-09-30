@@ -21,6 +21,8 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   - `utils/detection-log.ts` — last detection per tab (in-memory), feeds the popup diagnosis
   - `utils/outbox.ts` — readings the backend was not reachable for, in `storage.local`, until
     it is
+  - `utils/detection-selectors.ts` — which selectors detection uses on a site: its
+    calibration (cached for when the backend is away), else the curated rule
   - `utils/calibration.ts` — selector generation for the overlay (@medv/finder,
     round-trip validated)
   - covers — `detection/cover-hunt.ts` (hunt over the page), `cover-capture.ts` (byte fetch
@@ -55,20 +57,26 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   and assigns an id of its own. That is why the API's allowlist is a list (`EXTENSION_IDS`)
   and not a constant: the two ids coexist until the store's public key is pasted back here.
   See `docs/CHROME-WEB-STORE.md`.
-- **The backend's port is discovered, never assumed.** `host_permissions` is
-  `http://localhost/*` — a match pattern with no port matches every port, which is what an
-  installed backend needs. The search is bounded by a contract with the installer: **ports
-  5150–5159**, and a candidate only counts if `GET /health` returns
-  `service: "manga-tracker-api"`. That name is mandatory on every port except 5150, where a
-  bare `{status:"ok"}` is still accepted so a backend older than that field keeps working.
-  Widening the range means changing it in the installer too.
+- **The backend's port is discovered, never assumed.** The search is bounded by a contract
+  with the installer: **ports 5150–5159** (`utils/api/ports.ts`), and a candidate only counts
+  if `GET /health` returns `service: "manga-tracker-api"`. That name is mandatory on every
+  port except 5150, where a bare `{status:"ok"}` is still accepted so a backend older than
+  that field keeps working. `host_permissions` is generated from that same range — one
+  `http://localhost:<port>/*` per port, since 0.1.4; it used to be `http://localhost/*`, every
+  port on the machine. Widening the range means changing it in the installer too, and it is a
+  new Web Store version.
 - **A reading the backend was not there for is kept, not dropped** (`utils/outbox.ts`). The
   backend is a service so tracking works with the app closed, but it is dark for seconds at
   every login and during every update. Only a result that never reached a server
-  (`neverReachedServer`: no HTTP status) is queued; one the backend answered is never
-  retried. Drained oldest first by the `flush-reading-outbox` alarm, on startup, and whenever
-  a reading gets through again; the backend dedupes a chapter it already has, so a replay is
-  harmless. `readAt` is when it arrives, not when it was read.
+  (`neverReachedServer`: no HTTP status, including a request that hit the 10 s
+  `REQUEST_TIMEOUT_MS`) is queued; one the backend answered is never retried. Drained oldest
+  first by the `flush-reading-outbox` alarm, on startup, and whenever a reading gets through
+  again; the backend dedupes a chapter it already has, so a replay is harmless. Each replay
+  carries `readAt` (when it was queued), which a backend older than the field ignores.
+- **Detection works with the backend away** (`utils/detection-selectors.ts`): a site's
+  calibration is cached per domain as last seen, and a curated rule's selectors stand in
+  when there is none. Without that, a calibrated site fell back to the heuristics that had
+  failed there, and its readings never reached the outbox.
 - Retrying a request on a rediscovered port is only safe when the fetch itself threw —
   nothing reached a server, so a reading event cannot be posted twice. An HTTP error is an
   answer and is never retried (`Attempt` in `utils/api/client.ts`).

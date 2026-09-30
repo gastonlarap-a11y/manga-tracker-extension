@@ -15,10 +15,11 @@
  * side as well: the backend returns the stored event for a chapter it has.
  *
  * Drained oldest first, by an alarm while anything is waiting and whenever a
- * reading gets through again. The time recorded is when a reading arrives, not
- * when it was read — the API sets `readAt` itself. For the outages this exists
- * for, seconds or minutes, that is a difference nobody sees, and draining in
- * order keeps the order of what was read.
+ * reading gets through again. Each one carries `readAt`, the moment it was
+ * queued, so a chapter read during an outage is recorded at the time it was
+ * read rather than when the backend came back. A backend older than that field
+ * ignores it and stamps the arrival instead — draining in order still keeps the
+ * order of what was read.
  */
 import { browser, storage } from "#imports";
 import {
@@ -134,7 +135,9 @@ async function drain(send: SendReading): Promise<FlushResult> {
       return { sent, refused, remaining: 0 };
     }
 
-    const result = await send(head.payload);
+    // Queued at the moment the reading failed to go out, which is when it was
+    // read — so that is the time it is recorded with.
+    const result = await send({ ...head.payload, readAt: head.queuedAt });
     if (neverReachedServer(result)) {
       // Still away. Everything stays, head included, for the next attempt.
       return { sent, refused, remaining: (await read()).length };

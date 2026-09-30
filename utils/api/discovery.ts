@@ -12,15 +12,11 @@
  * lookup is not a search, it is a port scan.
  */
 import { browser } from "#imports";
+import { candidatePorts, DEFAULT_PORT } from "./ports";
 
-/**
- * Where a checkout and any install that could get it listen. Probed first and
- * on its own, so the ordinary case costs exactly one request.
- */
-export const DEFAULT_PORT = 5150;
-
-/** The last port an installer may fall back to. Ten candidates, 5150–5159. */
-export const LAST_PORT = 5159;
+// The range lives in ./ports, which the manifest's host permissions are
+// generated from; re-exported so callers keep finding it here.
+export { candidatePorts, DEFAULT_PORT, LAST_PORT } from "./ports";
 
 /**
  * `GET /health` answers with this. Without it a probe cannot tell this backend
@@ -47,14 +43,6 @@ const CACHE_KEY = "backendBaseUrl";
 
 export function baseUrlFor(port: number): string {
   return `http://localhost:${port}`;
-}
-
-export function candidatePorts(): number[] {
-  const ports: number[] = [];
-  for (let port = DEFAULT_PORT; port <= LAST_PORT; port++) {
-    ports.push(port);
-  }
-  return ports;
 }
 
 /**

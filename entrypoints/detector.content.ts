@@ -58,13 +58,15 @@ export default defineContentScript({
         return;
       }
 
-      const adapterResult = await sendRuntimeMessage({
-        kind: "get-adapter",
+      // The site's calibration, or its curated rule — served from the
+      // background's cache when the backend is away, so a calibrated site is
+      // still detected while its readings wait in the outbox.
+      const selectors = await sendRuntimeMessage({
+        kind: "get-selectors",
         domain: location.hostname,
       });
-      const adapter = adapterResult.ok ? adapterResult.data : null;
 
-      const detection = detectReading(document, url, adapter);
+      const detection = detectReading(document, url, selectors);
       // The background keeps the last run per tab so the popup can explain
       // why a page did or did not track.
       console.debug("[manga-tracker] detection", url, detection);
@@ -368,10 +370,14 @@ export default defineContentScript({
 
     function scheduleDetection(): void {
       window.clearTimeout(settleTimer);
-      settleTimer = ctx.setTimeout(
-        () => void detectAndReport(),
-        SETTLE_DELAY_MS,
-      );
+      settleTimer = ctx.setTimeout(() => {
+        // Rejects when the extension was reloaded under an open tab: this
+        // script's context is gone and it can no longer message anyone.
+        // Nothing to recover — the reloaded extension reinjects a fresh one.
+        detectAndReport().catch((cause: unknown) =>
+          console.debug("[manga-tracker] detection stopped", cause),
+        );
+      }, SETTLE_DELAY_MS);
     }
 
     scheduleDetection();

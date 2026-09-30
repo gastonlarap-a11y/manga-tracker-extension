@@ -100,11 +100,14 @@ learns that site's selectors and detects it from then on.
 
 ## What it does and does not do
 
-- It sends **only** to `http://localhost` — the app on your own computer. There is no remote
-  endpoint, no analytics, no telemetry.
+- It sends your readings **only** to `http://localhost` — the app on your own computer. There
+  is no remote endpoint, no analytics, no telemetry. The only other thing it fetches is a
+  series' page and cover image, from sites you enabled, to show the cover.
 - It reads the page's title, URL and cover image on sites you explicitly enabled.
-- `host_permissions` is `http://localhost/*` only. Access to any manga site is requested at
-  runtime, per site, by you.
+- `host_permissions` is ports 5150-5159 on `localhost` only — where the app may be listening.
+  Access to any manga site is requested at runtime, per site, by you.
+- A reading made while the app is not answering is kept in the browser and delivered when it
+  is back; the popup says how many are waiting.
 - Nothing is uploaded anywhere unless *you* configure a database of your own in the app, which
   is off by default.
 

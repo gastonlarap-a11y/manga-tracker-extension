@@ -92,9 +92,17 @@ export function App() {
     kind: "checking",
   });
   const [site, setSite] = useState<SiteState>({ kind: "loading" });
+  // Readings waiting in the outbox. Shown so "Sin conexión" does not read as
+  // "and everything you read meanwhile is gone".
+  const [pending, setPending] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    void sendRuntimeMessage({ kind: "get-outbox" }).then(({ pending }) => {
+      if (!cancelled) {
+        setPending(pending);
+      }
+    });
     void sendRuntimeMessage({ kind: "ping" }).then((result) => {
       if (cancelled) {
         return;
@@ -240,6 +248,13 @@ export function App() {
     <main className="popup">
       <h1>Manga Tracker</h1>
       <ConnectionBadge state={connection} />
+      {pending > 0 && (
+        <p className="status checking">
+          {pending === 1
+            ? "1 lectura espera a Manga Tracker; se envía sola cuando vuelva."
+            : `${pending} lecturas esperan a Manga Tracker; se envían solas cuando vuelva.`}
+        </p>
+      )}
       <SiteSection
         state={site}
         connected={connection.kind === "connected"}

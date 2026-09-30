@@ -70,21 +70,31 @@ describe("handleMessage", () => {
     expect(response).toEqual({ ok: true, data: { status: "ok" } });
   });
 
-  it("routes get-adapter to the backend and maps a 404 to null", async () => {
+  it("routes get-selectors to the backend and maps a 404 to no selectors", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: "Adapter not found" }, 404),
     );
 
     const response = await handleMessage({
-      kind: "get-adapter",
+      kind: "get-selectors",
       domain: "example.com",
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:5150/api/adapters/example.com",
-      undefined,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(response).toEqual({ ok: true, data: null });
+    expect(response).toBeNull();
+  });
+
+  it("answers get-outbox with how many readings are waiting", async () => {
+    await enqueue({
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1101",
+      sourceUrl: "https://example.com/one-piece/capitulo/1101",
+    });
+
+    expect(await handleMessage({ kind: "get-outbox" })).toEqual({ pending: 1 });
   });
 
   it("routes record-event straight to the events endpoint", async () => {
@@ -267,7 +277,7 @@ describe("handleMessage", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:5150/api/library",
-      undefined,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(response).toEqual({ ok: true, data: entries });
   });

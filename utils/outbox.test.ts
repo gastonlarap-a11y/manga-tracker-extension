@@ -82,13 +82,24 @@ describe("flushOutbox", () => {
 
     const result = await flushOutbox(send);
 
-    expect(send.mock.calls.map(([payload]) => payload)).toEqual([
-      reading(1),
-      reading(2),
-    ]);
+    expect(
+      send.mock.calls.map(([{ readAt: _readAt, ...payload }]) => payload),
+    ).toEqual([reading(1), reading(2)]);
     expect(result).toEqual({ sent: 2, refused: 0, remaining: 0 });
     expect(await queuedReadings()).toEqual([]);
     expect(await fakeBrowser.alarms.get(FLUSH_ALARM)).toBeUndefined();
+  });
+
+  it("sends each reading with the time it was read, not the time it arrives", async () => {
+    // Queued the moment it failed to go out, which is when it was read. A
+    // backend that only learned the time on arrival would sort an outage's
+    // chapters above everything read after it.
+    await enqueue(reading(1), new Date("2026-09-30T08:15:00Z"));
+    const send = vi.fn<SendReading>().mockResolvedValue(created);
+
+    await flushOutbox(send);
+
+    expect(send.mock.calls[0]?.[0].readAt).toBe("2026-09-30T08:15:00.000Z");
   });
 
   it("stops at the first reading that still cannot get through", async () => {

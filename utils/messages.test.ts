@@ -14,11 +14,15 @@ describe("isRuntimeMessage", () => {
     expect(isRuntimeMessage({ kind: "get-detection" })).toBe(false);
   });
 
-  it("accepts a get-adapter message with a domain", () => {
-    expect(isRuntimeMessage({ kind: "get-adapter", domain: "a.com" })).toBe(
+  it("accepts a get-selectors message with a domain", () => {
+    expect(isRuntimeMessage({ kind: "get-selectors", domain: "a.com" })).toBe(
       true,
     );
-    expect(isRuntimeMessage({ kind: "get-adapter" })).toBe(false);
+    expect(isRuntimeMessage({ kind: "get-selectors" })).toBe(false);
+  });
+
+  it("accepts a get-outbox message, which carries nothing", () => {
+    expect(isRuntimeMessage({ kind: "get-outbox" })).toBe(true);
   });
 
   it("accepts a record-event message with a full payload", () => {

@@ -11,6 +11,7 @@ import type {
   SiteRuleDto,
 } from "./api/types";
 import type { CoverRect } from "./cover-pixels";
+import type { DetectionSelectors } from "./detection/adapter";
 import type { Detection } from "./detection/heuristics";
 import type {
   CoverHealStatus,
@@ -30,7 +31,9 @@ export type RecordEventResponse =
 
 export type RuntimeMessage =
   | { kind: "ping" }
-  | { kind: "get-adapter"; domain: string }
+  // The selectors detection uses on a site: its calibration, or the curated
+  // rule, from a cache when the backend is away. See utils/detection-selectors.ts.
+  | { kind: "get-selectors"; domain: string }
   // Served from the background's cache: only it may fetch, and a detection
   // must not wait on the network to find out how a site names its series.
   | { kind: "get-site-rules" }
@@ -51,6 +54,8 @@ export type RuntimeMessage =
   | { kind: "start-calibration"; tabId: number }
   | { kind: "save-adapter"; body: CreateAdapterBody }
   | { kind: "get-library" }
+  // How many readings are waiting in the outbox for the backend.
+  | { kind: "get-outbox" }
   | { kind: "set-cover"; mangaId: string; coverUrl: string }
   | { kind: "backfill-covers" }
   // Cover bytes fetched by the content script in the page's own context
@@ -72,7 +77,8 @@ export type RuntimeMessage =
 
 export interface MessageResponses {
   ping: ApiResult<HealthResponse>;
-  "get-adapter": ApiResult<SiteAdapterDto | null>;
+  // Never a failure: with nothing to go on, detection uses the heuristics.
+  "get-selectors": DetectionSelectors | null;
   // An empty list, never a failure: with no rules, detection uses the generic
   // heuristics, which is what every site got before the catalogue existed.
   "get-site-rules": SiteRuleDto[];
@@ -87,6 +93,7 @@ export interface MessageResponses {
   "start-calibration": ApiResult<null>;
   "save-adapter": ApiResult<SiteAdapterDto>;
   "get-library": ApiResult<LibraryEntryDto[]>;
+  "get-outbox": { pending: number };
   "set-cover": ApiResult<MangaDto>;
   "backfill-covers": null;
   "upload-cover-bytes": ApiResult<null>;
@@ -113,13 +120,14 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
   switch (value.kind) {
     case "ping":
     case "get-library":
+    case "get-outbox":
     case "backfill-covers":
     case "get-site-rules":
       return true;
     case "get-detection":
     case "start-calibration":
       return "tabId" in value && typeof value.tabId === "number";
-    case "get-adapter":
+    case "get-selectors":
       return "domain" in value && typeof value.domain === "string";
     case "record-event":
       return "payload" in value && isCreateEventBody(value.payload);
