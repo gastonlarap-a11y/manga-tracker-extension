@@ -24,7 +24,9 @@ export default defineConfig({
     // when loaded unpacked. Private key: extension-key.pem (gitignored).
     // Resulting id: cfjiinlnepkmlaafdclmlpjbmpofplop
     ...(forStore ? {} : { key: UNPACKED_KEY }),
-    permissions: ["storage", "activeTab", "scripting"],
+    // `alarms` drains the reading outbox (utils/outbox.ts) while the backend
+    // is away.
+    permissions: ["storage", "activeTab", "scripting", "alarms"],
     // No port: a match pattern without one matches every port, which is what
     // discovery needs — an installed backend listens wherever it found room.
     // Still localhost only, so this grants nothing on the open internet.

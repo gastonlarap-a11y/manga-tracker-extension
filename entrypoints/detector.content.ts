@@ -116,7 +116,9 @@ export default defineContentScript({
         url,
         delivery: recorded.ok
           ? { status: "sent" }
-          : { status: "failed", error: recorded.error },
+          : "queued" in recorded
+            ? { status: "queued" }
+            : { status: "failed", error: recorded.error },
       });
       if (!recorded.ok) {
         console.debug(

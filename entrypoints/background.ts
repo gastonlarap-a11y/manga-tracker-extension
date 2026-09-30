@@ -1,7 +1,12 @@
 import { browser, defineBackground } from "#imports";
 import { clearTab } from "@/utils/detection-log";
-import { backfillMissingCovers, handleMessage } from "@/utils/message-handler";
+import {
+  backfillMissingCovers,
+  flushReadings,
+  handleMessage,
+} from "@/utils/message-handler";
 import { isRuntimeMessage } from "@/utils/messages";
+import { FLUSH_ALARM } from "@/utils/outbox";
 import {
   injectDetectorIntoOpenTabs,
   syncRegisteredSites,
@@ -14,15 +19,25 @@ export default defineBackground(() => {
   // byte backfill and the site rules piggyback on the same once-per-session
   // signals: an update is exactly when a machine may have gained a backend
   // that knows about sites this build has never heard of.
+  // Readings kept while the backend was away go out on the same signals, and
+  // on the alarm the outbox arms for as long as it holds any. flushReadings
+  // logs its own failures, so `void` drops nothing.
   browser.runtime.onInstalled.addListener(() => {
     void resyncDetectors();
     void backfillMissingCovers();
     void refreshRules();
+    void flushReadings();
   });
   browser.runtime.onStartup.addListener(() => {
     void resyncDetectors();
     void backfillMissingCovers();
     void refreshRules();
+    void flushReadings();
+  });
+  browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === FLUSH_ALARM) {
+      void flushReadings();
+    }
   });
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {

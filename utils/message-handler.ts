@@ -5,6 +5,7 @@ import {
   createReadingEvent,
   getAdapter,
   getLibrary,
+  neverReachedServer,
   pingHealth,
   setMangaCover,
   uploadMangaCoverImage,
@@ -31,8 +32,10 @@ import {
 import type {
   ContentCommand,
   MessageResponses,
+  RecordEventResponse,
   RuntimeMessage,
 } from "./messages";
+import { enqueue, flushOutbox } from "./outbox";
 import {
   ensureDetectorRegistered,
   registerSite,
@@ -65,7 +68,7 @@ export function handleMessage(
     case "get-site-rules":
       return rulesForDetection();
     case "record-event":
-      return recordEventWithCover(message.payload);
+      return recordEvent(message.payload);
     case "register-site":
       return registerSite(message.originPattern, message.tabId);
     case "unregister-site":
@@ -182,6 +185,46 @@ async function captureCoverPixels(
 // Both cover paths follow up a stored coverUrl with a byte capture, awaited
 // inside the handler: an MV3 service worker may be killed once the message
 // port closes, so fire-and-forget could die mid-fetch.
+/**
+ * Records a reading, keeps it when the backend is not there, and — once one
+ * gets through — sends whatever was kept before it.
+ */
+async function recordEvent(
+  payload: CreateEventBody,
+): Promise<RecordEventResponse> {
+  const result = await recordEventWithCover(payload);
+  if (neverReachedServer(result)) {
+    try {
+      await enqueue(payload);
+    } catch (cause) {
+      // Keeping it failed too. The honest answer is the original failure:
+      // saying "queued" here would promise a send that will never happen.
+      console.error("[manga-tracker] could not queue a reading", cause);
+      return result;
+    }
+    return { ok: false, error: result.error, queued: true };
+  }
+  // It answered, so it is back. Not awaited: this reading's own answer should
+  // not wait on everything that queued up before it.
+  void flushReadings();
+  return result;
+}
+
+/**
+ * Drains the outbox, capturing covers the way a live reading does. The one
+ * entry point for the alarm, startup and a reading that got through.
+ */
+export async function flushReadings(): Promise<void> {
+  try {
+    const flushed = await flushOutbox(recordEventWithCover);
+    if (flushed.sent + flushed.refused > 0) {
+      console.info("[manga-tracker] outbox drained", flushed);
+    }
+  } catch (cause) {
+    console.error("[manga-tracker] outbox flush failed", cause);
+  }
+}
+
 async function recordEventWithCover(
   payload: CreateEventBody,
 ): Promise<ApiResult<CreateEventResponse>> {

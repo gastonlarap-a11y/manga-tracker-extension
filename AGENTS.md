@@ -19,6 +19,8 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   - `utils/message-handler.ts` — background business logic (entrypoint stays thin)
   - `utils/site-registration.ts` — runtime registration of the detector per granted origin
   - `utils/detection-log.ts` — last detection per tab (in-memory), feeds the popup diagnosis
+  - `utils/outbox.ts` — readings the backend was not reachable for, in `storage.local`, until
+    it is
   - `utils/calibration.ts` — selector generation for the overlay (@medv/finder,
     round-trip validated)
   - covers — `detection/cover-hunt.ts` (hunt over the page), `cover-capture.ts` (byte fetch
@@ -60,6 +62,13 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   `service: "manga-tracker-api"`. That name is mandatory on every port except 5150, where a
   bare `{status:"ok"}` is still accepted so a backend older than that field keeps working.
   Widening the range means changing it in the installer too.
+- **A reading the backend was not there for is kept, not dropped** (`utils/outbox.ts`). The
+  backend is a service so tracking works with the app closed, but it is dark for seconds at
+  every login and during every update. Only a result that never reached a server
+  (`neverReachedServer`: no HTTP status) is queued; one the backend answered is never
+  retried. Drained oldest first by the `flush-reading-outbox` alarm, on startup, and whenever
+  a reading gets through again; the backend dedupes a chapter it already has, so a replay is
+  harmless. `readAt` is when it arrives, not when it was read.
 - Retrying a request on a rediscovered port is only safe when the fetch itself threw —
   nothing reached a server, so a reading event cannot be posted twice. An HTTP error is an
   answer and is never retried (`Attempt` in `utils/api/client.ts`).

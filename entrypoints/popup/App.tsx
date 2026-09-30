@@ -436,9 +436,14 @@ function describeDetection(entry: DetectionEntry): string {
       if (!entry.delivery) {
         return base;
       }
-      return entry.delivery.status === "sent"
-        ? `${base} — guardado.`
-        : `${base} — pero el guardado falló: ${entry.delivery.error}`;
+      switch (entry.delivery.status) {
+        case "sent":
+          return `${base} — guardado.`;
+        case "queued":
+          return `${base} — Manga Tracker no respondió; queda guardado acá y se envía solo cuando vuelva.`;
+        case "failed":
+          return `${base} — pero el guardado falló: ${entry.delivery.error}`;
+      }
     }
     return `Confianza baja (${percent} %): ${detection.mangaName} — usá "Calibrar detección".`;
   }

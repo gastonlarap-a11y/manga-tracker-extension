@@ -18,6 +18,23 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; status?: number };
 
+/** A failure that never reached a server: see `neverReachedServer`. */
+export type Unreached = { ok: false; error: string; status?: undefined };
+
+/**
+ * Whether a result is a failure that never reached a server at all.
+ *
+ * `request` sets `status` exactly when an HTTP response came back, so a failure
+ * without one is the fetch throwing, or no backend on any port — the one case
+ * where sending the same request again cannot record a reading twice. A result
+ * with a status is the backend's answer, and is never retried.
+ */
+export function neverReachedServer(
+  result: ApiResult<unknown>,
+): result is Unreached {
+  return !result.ok && result.status === undefined;
+}
+
 export function pingHealth(): Promise<ApiResult<HealthResponse>> {
   return request<HealthResponse>("/health");
 }
