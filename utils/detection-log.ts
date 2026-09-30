@@ -6,6 +6,8 @@ import type { Detection } from "./detection/heuristics";
 // detection never reached the threshold.
 export type DeliveryStatus =
   | { status: "sent" }
+  // The backend was not reachable; the reading waits in utils/outbox.ts.
+  | { status: "queued" }
   | { status: "failed"; error: string };
 
 // Outcome of the cover byte-heal chain (in-page fetch → pixel capture), so

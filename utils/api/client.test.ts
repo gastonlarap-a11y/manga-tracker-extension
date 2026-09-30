@@ -4,6 +4,7 @@ import {
   createReadingEvent,
   getAdapter,
   getLibrary,
+  neverReachedServer,
   pingHealth,
 } from "./client";
 import { baseUrlFor, DEFAULT_PORT, SERVICE_NAME } from "./discovery";
@@ -184,6 +185,34 @@ describe("when the backend moved to another port", () => {
     const result = await getLibrary();
 
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("neverReachedServer", () => {
+  // The outbox keeps exactly the readings this says true for, so the line it
+  // draws is the line between "safe to send again" and "already answered".
+  const body = {
+    mangaName: "One Piece",
+    chapterLabel: "Cap. 0 (evento test)",
+    sourceUrl: "https://example.com/one-piece",
+  };
+
+  it("is true when no backend answered on any port", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    expect(neverReachedServer(await createReadingEvent(body))).toBe(true);
+  });
+
+  it("is false for an error the backend answered with", async () => {
+    backendReplies({ error: "Internal Server Error" }, 500);
+
+    expect(neverReachedServer(await createReadingEvent(body))).toBe(false);
+  });
+
+  it("is false for a success", async () => {
+    backendReplies(createEventResponse, 201);
+
+    expect(neverReachedServer(await createReadingEvent(body))).toBe(false);
   });
 });
 

@@ -42,7 +42,8 @@ the local database. It never leaves the machine.
 
 | Permission | Why it is needed |
 |---|---|
-| `storage` | Remembers which local port the companion application is listening on, so the extension does not have to search for it on every request. Nothing else is stored. |
+| `storage` | Remembers which local port the companion application is listening on, so the extension does not have to search for it on every request; keeps a copy of the site rules the companion application serves; and holds readings made while the companion application was not answering, until they are delivered to it. All of it stays in the browser, on this machine. |
+| `alarms` | Retries delivering those held readings, once a minute, only while there are any. |
 | `activeTab` | Reads the title and chapter markers of the tab the user is looking at, when the user acts on it. |
 | `scripting` | Injects the detection script into the sites the user enabled, and the two-click calibration overlay when the user calibrates a site by hand. |
 | `http://localhost/*` | The only network destination: the companion application on the user's own machine. The port is not fixed because the installer picks one that is free, so the pattern covers any port on `localhost`. It grants no access to the internet. |

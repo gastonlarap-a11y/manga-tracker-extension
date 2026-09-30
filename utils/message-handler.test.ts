@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing";
 import { baseUrlFor, DEFAULT_PORT, rememberBaseUrl } from "./api/discovery";
-import { handleMessage } from "./message-handler";
+import { flushReadings, handleMessage } from "./message-handler";
+import { enqueue, queuedReadings } from "./outbox";
 
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
@@ -105,6 +106,68 @@ describe("handleMessage", () => {
       }),
     );
     expect(response).toEqual({ ok: true, data: created });
+  });
+
+  it("keeps a reading the backend was not there for, and says so", async () => {
+    // Every port refuses: the service is between a login and its launcher
+    // having read the keystore. The reading must not be lost.
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    const payload = {
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1101",
+      sourceUrl: "https://example.com/one-piece/capitulo/1101",
+    };
+
+    const response = await handleMessage({ kind: "record-event", payload });
+
+    expect(response).toMatchObject({ ok: false, queued: true });
+    expect((await queuedReadings()).map((entry) => entry.payload)).toEqual([
+      payload,
+    ]);
+  });
+
+  it("does not keep a reading the backend answered, even with an error", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: "invalid" }, 400));
+    const payload = {
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1102",
+      sourceUrl: "https://example.com/one-piece/capitulo/1102",
+    };
+
+    const response = await handleMessage({ kind: "record-event", payload });
+
+    expect(response).toEqual({ ok: false, error: "invalid", status: 400 });
+    expect(await queuedReadings()).toEqual([]);
+  });
+
+  it("sends what was kept once a reading gets through again", async () => {
+    const kept = {
+      mangaName: "One Piece",
+      chapterLabel: "Cap. 1101",
+      sourceUrl: "https://example.com/one-piece/capitulo/1101",
+    };
+    await enqueue(kept);
+    const created = {
+      manga: { id: "m1", coverUrl: null },
+      event: { id: "e1" },
+    };
+    fetchMock.mockImplementation(async () => jsonResponse(created, 201));
+
+    await handleMessage({
+      kind: "record-event",
+      payload: {
+        mangaName: "One Piece",
+        chapterLabel: "Cap. 1102",
+        sourceUrl: "https://example.com/one-piece/capitulo/1102",
+      },
+    });
+    await flushReadings();
+
+    const posted = fetchMock.mock.calls
+      .filter(([input]) => String(input).endsWith("/api/events"))
+      .map(([, init]) => JSON.parse(String(init?.body)).chapterLabel);
+    expect(posted).toContain("Cap. 1101");
+    expect(await queuedReadings()).toEqual([]);
   });
 
   it("stores a reported detection under the sender tab and serves it back", async () => {

@@ -19,6 +19,15 @@ import type {
 } from "./detection-log";
 import type { DetectorRepair } from "./site-registration";
 
+/**
+ * What recording a reading comes back as. `queued` is its own answer rather
+ * than a failure: the backend was not reachable, and the reading is kept in
+ * `utils/outbox.ts` to be sent when it is.
+ */
+export type RecordEventResponse =
+  | ApiResult<CreateEventResponse>
+  | { ok: false; error: string; queued: true };
+
 export type RuntimeMessage =
   | { kind: "ping" }
   | { kind: "get-adapter"; domain: string }
@@ -67,7 +76,7 @@ export interface MessageResponses {
   // An empty list, never a failure: with no rules, detection uses the generic
   // heuristics, which is what every site got before the catalogue existed.
   "get-site-rules": SiteRuleDto[];
-  "record-event": ApiResult<CreateEventResponse>;
+  "record-event": RecordEventResponse;
   "register-site": ApiResult<null>;
   "unregister-site": ApiResult<null>;
   "ensure-site-registered": ApiResult<DetectorRepair>;
@@ -245,7 +254,7 @@ function isDeliveryStatus(value: unknown): value is DeliveryStatus {
   if (typeof value !== "object" || value === null || !("status" in value)) {
     return false;
   }
-  if (value.status === "sent") {
+  if (value.status === "sent" || value.status === "queued") {
     return true;
   }
   return (
