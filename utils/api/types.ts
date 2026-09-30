@@ -37,6 +37,10 @@ export interface CreateEventBody {
   // from it and uses it as identity within the site, so a reformatted <title>
   // no longer splits a series into a second manga.
   seriesUrl?: string;
+  // ISO 8601. Only on a reading delivered late from the outbox: when it was
+  // read, rather than when it finally arrived. A backend older than the field
+  // drops unknown keys, so sending it there is harmless.
+  readAt?: string;
 }
 
 export interface CreateEventResponse {

@@ -1,5 +1,4 @@
-import type { SiteAdapterDto } from "../api/types";
-import { detectFromAdapter } from "./adapter";
+import { type DetectionSelectors, detectFromAdapter } from "./adapter";
 import type { Detection } from "./heuristics";
 import { detectFromHeuristics } from "./heuristics";
 import { collectPageSignals } from "./page-signals";
@@ -8,7 +7,7 @@ import { collectPageSignals } from "./page-signals";
 export function detectReading(
   doc: Document,
   url: string,
-  adapter: SiteAdapterDto | null,
+  adapter: DetectionSelectors | null,
 ): Detection {
   if (adapter) {
     const detection = detectFromAdapter(adapter, doc, url);

@@ -18,6 +18,15 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; status?: number };
 
+/**
+ * How long a request to the backend may take. Unbounded, a backend that
+ * accepted the connection and then hung held the reading that asked with it:
+ * the fetch never settled, so it was neither delivered nor queued. Timed out,
+ * it counts as not reached — sent again elsewhere, or kept in the outbox — and
+ * if it did get through after all, the backend dedupes the chapter.
+ */
+export const REQUEST_TIMEOUT_MS = 10_000;
+
 /** A failure that never reached a server: see `neverReachedServer`. */
 export type Unreached = { ok: false; error: string; status?: undefined };
 
@@ -164,7 +173,10 @@ async function send<T>(
 ): Promise<Attempt<T>> {
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, init);
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
   } catch (cause) {
     return {
       reached: false,

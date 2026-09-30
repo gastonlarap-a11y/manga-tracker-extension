@@ -24,6 +24,9 @@ function jsonResponse(body: unknown, status: number): Response {
 
 const health = jsonResponse({ status: "ok", service: SERVICE_NAME }, 200);
 
+/** Every request carries the timeout that keeps a hung backend from holding it. */
+const timed = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 /**
  * Every request now starts by locating the backend, so the mock has to answer
  * the health probe as well. Discovery finds it on the default port, which is
@@ -77,7 +80,7 @@ describe("pingHealth", () => {
 
     const result = await pingHealth();
 
-    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE_URL}/health`, undefined);
+    expect(fetchMock).toHaveBeenCalledWith(`${API_BASE_URL}/health`, timed);
     expect(result).toEqual({
       ok: true,
       data: { status: "ok", service: SERVICE_NAME },
@@ -112,6 +115,7 @@ describe("createReadingEvent", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: expect.any(AbortSignal),
     });
     expect(result).toEqual({ ok: true, data: createEventResponse });
   });
@@ -173,7 +177,7 @@ describe("when the backend moved to another port", () => {
     expect(result).toEqual({ ok: true, data: [] });
     expect(fetchMock).toHaveBeenCalledWith(
       `${baseUrlFor(5153)}/api/library`,
-      undefined,
+      timed,
     );
   });
 
@@ -214,6 +218,19 @@ describe("neverReachedServer", () => {
 
     expect(neverReachedServer(await createReadingEvent(body))).toBe(false);
   });
+
+  it("is true for a backend that accepted the request and never answered", async () => {
+    // What the timeout turns a hung backend into. Before it, this fetch never
+    // settled, and the reading was neither delivered nor kept.
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith("/health")) {
+        return health.clone();
+      }
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+
+    expect(neverReachedServer(await createReadingEvent(body))).toBe(true);
+  });
 });
 
 describe("getAdapter", () => {
@@ -234,7 +251,7 @@ describe("getAdapter", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${API_BASE_URL}/api/adapters/example.com`,
-      undefined,
+      timed,
     );
     expect(result).toEqual({ ok: true, data: adapter });
   });

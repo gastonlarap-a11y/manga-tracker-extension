@@ -1,4 +1,5 @@
 import { defineConfig } from "wxt";
+import { candidatePorts } from "./utils/api/ports";
 
 /**
  * The Chrome Web Store refuses a first upload whose manifest declares `key`
@@ -20,6 +21,11 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "Manga Tracker",
+    // What people read in chrome://extensions and as the store's summary
+    // (132 characters at most). Without it WXT copies package.json's, which is
+    // written for developers.
+    description:
+      "Registra qué manga y qué capítulo estás leyendo y lo guarda en tu propia computadora. Sin cuentas y sin servidores.",
     // Fixed public key so the extension id is stable across machines/loads
     // when loaded unpacked. Private key: extension-key.pem (gitignored).
     // Resulting id: cfjiinlnepkmlaafdclmlpjbmpofplop
@@ -27,10 +33,13 @@ export default defineConfig({
     // `alarms` drains the reading outbox (utils/outbox.ts) while the backend
     // is away.
     permissions: ["storage", "activeTab", "scripting", "alarms"],
-    // No port: a match pattern without one matches every port, which is what
-    // discovery needs — an installed backend listens wherever it found room.
-    // Still localhost only, so this grants nothing on the open internet.
-    host_permissions: ["http://localhost/*"],
+    // Exactly the ports discovery probes (utils/api/discovery.ts), which are
+    // the ones the installer may pick from. A pattern with no port would match
+    // every port on the machine — access to whatever else listens on
+    // localhost, for a backend that can only ever be on one of these ten.
+    host_permissions: candidatePorts().map(
+      (port) => `http://localhost:${port}/*`,
+    ),
     optional_host_permissions: ["https://*/*", "http://*/*"],
     // The calibration overlay is a runtime-registered content script, so WXT
     // cannot infer which sites may load its CSS and emits an empty `matches`

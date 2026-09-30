@@ -56,7 +56,7 @@ the local database. It never leaves the machine.
 | `alarms` | Retries delivering those held readings, once a minute, only while there are any. |
 | `activeTab` | Reads the title and chapter markers of the tab the user is looking at, when the user acts on it. |
 | `scripting` | Injects the detection script into the sites the user enabled, and the two-click calibration overlay when the user calibrates a site by hand. |
-| `http://localhost/*` | The only place readings are sent: the companion application on the user's own machine. The port is not fixed because the installer picks one that is free, so the pattern covers any port on `localhost`. It grants no access to the internet. |
+| `http://localhost:5150/*` … `http://localhost:5159/*` | The only place readings are sent: the companion application on the user's own machine. The installer picks whichever of these ten ports is free, so the extension may reach exactly those and no other port. It grants no access to the internet. |
 | `https://*/*`, `http://*/*` (optional) | Requested at runtime, per site, only when the user turns on tracking for that site. Never granted in advance. Lets the extension read the tracked pages of that site and download a series' cover from it. |
 
 ## Optional synchronisation

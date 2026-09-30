@@ -294,11 +294,13 @@ Injects the detection content script into the sites the user has enabled trackin
 the two-click calibration overlay when the user chooses to calibrate a site manually.
 ```
 
-**`host_permissions` — `http://localhost/*`**
+**`host_permissions` — `http://localhost:5150/*` a `http://localhost:5159/*`** (desde 0.1.4;
+antes era `http://localhost/*`)
 ```
 Readings are sent only to the companion application running on the same machine, over the
-loopback interface. The port is not fixed because the installer picks a free one, so the
-pattern must cover any port on localhost. This grants no access to any remote server.
+loopback interface. Its installer picks whichever of ports 5150-5159 is free, so the
+extension requests exactly those ten ports on localhost and no other. This grants no access
+to any remote server.
 ```
 
 **Permisos opcionales — `https://*/*` y `http://*/*`**

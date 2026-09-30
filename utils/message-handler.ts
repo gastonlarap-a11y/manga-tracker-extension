@@ -3,7 +3,6 @@ import type { ApiResult } from "./api/client";
 import {
   createAdapter,
   createReadingEvent,
-  getAdapter,
   getLibrary,
   neverReachedServer,
   pingHealth,
@@ -29,13 +28,14 @@ import {
   recordDelivery,
   recordDetection,
 } from "./detection-log";
+import { selectorsForDetection } from "./detection-selectors";
 import type {
   ContentCommand,
   MessageResponses,
   RecordEventResponse,
   RuntimeMessage,
 } from "./messages";
-import { enqueue, flushOutbox } from "./outbox";
+import { enqueue, flushOutbox, queuedReadings } from "./outbox";
 import {
   ensureDetectorRegistered,
   registerSite,
@@ -63,8 +63,8 @@ export function handleMessage(
   switch (message.kind) {
     case "ping":
       return pingHealth();
-    case "get-adapter":
-      return getAdapter(message.domain);
+    case "get-selectors":
+      return selectorsForDetection(message.domain);
     case "get-site-rules":
       return rulesForDetection();
     case "record-event":
@@ -104,6 +104,8 @@ export function handleMessage(
       return saveAdapter(message.body, senderTabId);
     case "get-library":
       return getLibrary();
+    case "get-outbox":
+      return queuedReadings().then((queue) => ({ pending: queue.length }));
     case "set-cover":
       return setCoverWithBytes(message.mangaId, message.coverUrl);
     case "backfill-covers":
