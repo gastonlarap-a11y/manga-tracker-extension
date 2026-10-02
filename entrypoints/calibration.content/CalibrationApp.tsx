@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CalibrationPick, PickRejection } from "@/utils/calibration";
-import { pickElement, pickTarget } from "@/utils/calibration";
+import { checkPick, pickElement, pickTarget } from "@/utils/calibration";
 import { sendRuntimeMessage } from "@/utils/messages";
 
 // Tag name given to createShadowRootUi; events from inside the shadow UI
@@ -31,6 +31,12 @@ const REJECTION_TEXT: Record<PickRejection | "nothing", string> = {
     "Eso es un bloque entero de la página. Clickeá justo sobre el texto.",
   "no-selector":
     "No encuentro una forma de volver a encontrar ese elemento. Probá con el que lo contiene.",
+  "title-has-chapter":
+    "Eso incluye el capítulo además del nombre. Clickeá solo sobre el nombre del manga.",
+  "chapter-has-no-number":
+    "Ese texto no tiene el número del capítulo. Clickeá sobre el número.",
+  "same-as-title":
+    "Es el mismo elemento que elegiste como nombre. Clickeá donde está el capítulo.",
   nothing: "Ahí no hay nada que tomar. Clickeá sobre el texto.",
 };
 
@@ -92,6 +98,8 @@ export function CalibrationApp({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<Step>({ kind: "pick-title" });
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [rejection, setRejection] = useState<string | null>(null);
+  const stepRef = useRef(step);
+  stepRef.current = step;
 
   const picking = step.kind === "pick-title" || step.kind === "pick-chapter";
 
@@ -154,20 +162,29 @@ export function CalibrationApp({ onClose }: { onClose: () => void }) {
         setRejection(REJECTION_TEXT[result.reason]);
         return;
       }
+      // The step as it is now: this listener outlives the render it was
+      // created in, for as long as picking lasts.
+      const current = stepRef.current;
+      const problem =
+        current.kind === "pick-title"
+          ? checkPick("title", result.pick)
+          : current.kind === "pick-chapter"
+            ? checkPick("chapter", result.pick, current.title)
+            : null;
+      if (problem !== null) {
+        setRejection(REJECTION_TEXT[problem]);
+        return;
+      }
       setRejection(null);
-      setStep((current) => {
-        if (current.kind === "pick-title") {
-          return { kind: "pick-chapter", title: result.pick };
-        }
-        if (current.kind === "pick-chapter") {
-          return {
-            kind: "confirm",
-            title: current.title,
-            chapter: result.pick,
-          };
-        }
-        return current;
-      });
+      if (current.kind === "pick-title") {
+        setStep({ kind: "pick-chapter", title: result.pick });
+      } else if (current.kind === "pick-chapter") {
+        setStep({
+          kind: "confirm",
+          title: current.title,
+          chapter: result.pick,
+        });
+      }
     }
 
     // On window, in the capture phase: the earliest point a listener can
