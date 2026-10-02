@@ -1,10 +1,14 @@
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+/* Page base for the popup; the tokens are the dashboard's (assets/tokens.css)
+   and the components live in App.css. */
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -12,37 +16,16 @@
 }
 
 body {
-  margin: 0;
-  min-width: 260px;
+  width: 360px;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.5em 1em;
-  font-size: 0.9em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
+button,
+input {
+  font: inherit;
+  color: inherit;
 }
 
-button:hover:enabled {
-  border-color: #646cff;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

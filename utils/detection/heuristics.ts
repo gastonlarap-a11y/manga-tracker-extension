@@ -1,9 +1,12 @@
+import { DEFAULT_DETECTION_CONFIG, type DetectionConfig } from "./config";
 import type { PageSignals } from "./page-signals";
 import { normalizeTokens } from "./text";
 
-// Auto-send threshold (project plan, phase 6): below this the page is ignored
-// until the calibration overlay (phase 7) exists.
-export const CONFIDENCE_THRESHOLD = 0.7;
+// Auto-send threshold: below it a detection is shown in the popup and never
+// recorded. The compiled default; the backend may replace it, globally or for
+// one site (utils/detection/config.ts).
+export const CONFIDENCE_THRESHOLD =
+  DEFAULT_DETECTION_CONFIG.confidenceThreshold;
 
 export type Detection =
   | {
@@ -14,10 +17,17 @@ export type Detection =
     }
   | {
       detected: false;
-      reason: "no-chapter-in-url" | "no-title" | "no-chapter-in-title";
+      reason:
+        | "no-chapter-in-url"
+        | "no-title"
+        | "no-chapter-in-title"
+        // The site's rule names this page as one that looks like a chapter
+        // and is not (a "latest chapters" listing, a preview).
+        | "ignored-path";
     };
 
 type TitleSource =
+  | "theme-heading"
   | "og"
   | "twitter"
   | "series-link"
@@ -32,6 +42,10 @@ const CHAPTER_BASE_CONFIDENCE = 45;
 // on its own, whichever source carried it.
 const TITLE_CHAPTER_BONUS = 10;
 const TITLE_CONFIDENCE: Record<TitleSource, number> = {
+  // The element the site's theme always puts the series and chapter in
+  // (Madara's #chapter-heading): as deliberate as og, and present on sites
+  // whose og:title is the site's own name.
+  "theme-heading": 35,
   og: 35,
   twitter: 30,
   // Anchor text validated against the series slug in its own href — as
@@ -44,67 +58,37 @@ const TITLE_CONFIDENCE: Record<TitleSource, number> = {
   "url-slug": 25,
 };
 
-const CHAPTER_URL_PATTERNS: RegExp[] = [
-  /\/cap(?:itulo)?[/-](\d+(?:[.,]\d+)?)/i,
-  /\/chapter[/-](\d+(?:[.,]\d+)?)/i,
-  /\/ch[/-](\d+(?:[.,]\d+)?)/i,
-  /\/c\/(\d+(?:[.,]\d+)?)/i,
-  // Reader-verb segment carrying the chapter number directly (lectorxd:
-  // /manhua/<slug>/leer/56). Last so cap/chapter/ch/c keep first claim on
-  // any ambiguous path.
-  /\/(?:leer|lector|ver|read|reader|viewer)(?:_\w+)?[/-](\d+(?:[.,]\d+)?)(?:\/|$)/i,
-];
+// The URL patterns, reader segments, chapter words, section names and leading
+// prefixes this heuristic reads with live in ./config.ts, where the backend can
+// add to them. Every function below takes that config, defaulting to the
+// compiled one.
 
-// Reader-style path segment, at any depth: root-level SPAs (manhwaweb:
-// /leer/, /leer_18/) and series-nested readers (lectorxd: /manhua/<slug>/leer/)
-// whose URLs may carry internal ids instead of chapter numbers.
-//
-// A segment that literally says "chapter" belongs here too, even though
-// CHAPTER_URL_PATTERNS already claims it when a number follows: on mangadex the
-// id is a uuid (/chapter/e3d4e69e-…), so the number never comes, and the page
-// was gated out for having no chapter in its url — while its og:title said
-// "… - Ch. 107 -" all along. Naming the segment is the evidence; the number is
-// only one way of confirming it.
-const READER_PATH_PATTERN =
-  /\/(?:leer|lector|read|reader|ver|viewer|cap[íi]tulo|chapter|cap|ch)(?:_\w+)?\//i;
-
-// No real chapter needs more integer digits than this; longer URL numbers are
-// internal ids (olympus: /capitulo/130729/, ikigai: /capitulo/118774…393/).
-const MAX_URL_CHAPTER_DIGITS = 4;
-
-// Longest alternatives first so "capítulo" is not half-matched as "cap".
-const CHAPTER_WORDS = "(?:cap[íi]tulo|chapter|cap\\.?|ch\\.?)";
-
-// Path segments that name a site section, never a series
-// (/series/<slug>/capitulo-89/ → "series" is not the manga).
-const SECTION_SEGMENTS = new Set([
-  "series",
-  "serie",
-  "manga",
-  "mangas",
-  "manhwa",
-  "manhwas",
-  "manhua",
-  "comic",
-  "comics",
-  "leer",
-  "lector",
-  "read",
-  "reader",
-  "ver",
-  "viewer",
-]);
-
-export function detectFromHeuristics(signals: PageSignals): Detection {
+export function detectFromHeuristics(
+  signals: PageSignals,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): Detection {
   // A catalog/home page has neither a chapter marker in its URL nor a
-  // reader-style path, so it never produces an event.
-  const urlChapter = extractChapterFromUrl(signals.url);
-  if (urlChapter === null && !isReaderPath(signals.url)) {
+  // reader-style path, so it never produces an event — unless the site's
+  // theme says this is its reader (MangaThemesia's `/<slug>-capitulo-12/`
+  // carries the chapter mid-segment, where no URL pattern looks).
+  const urlChapter = extractChapterFromUrl(signals.url, config);
+  if (
+    urlChapter === null &&
+    !isReaderPath(signals.url, config) &&
+    !signals.themeReader
+  ) {
     return { detected: false, reason: "no-chapter-in-url" };
   }
 
-  const title = pickTitle(signals);
-  if (title === null) {
+  const candidates = titleCandidates(signals, config);
+  // A source naming the chapter beats a higher-priority one that does not:
+  // SPA readers often carry the chapter only in document.title while a site
+  // logo occupies the h1.
+  const title =
+    candidates.find(
+      (candidate) => extractChapterFromTitle(candidate.value, config) !== null,
+    ) ?? candidates[0];
+  if (title === undefined) {
     return { detected: false, reason: "no-title" };
   }
 
@@ -113,42 +97,95 @@ export function detectFromHeuristics(signals: PageSignals): Detection {
   // the human-facing title wins when it names a chapter. Implausibly long URL
   // numbers are ids, never chapters — like reader paths, they need the title
   // to vouch for the chapter.
-  const titleChapter = extractChapterFromTitle(title.value);
+  const titleChapter = extractChapterFromTitle(title.value, config);
   const trustedUrlChapter =
-    urlChapter !== null && isPlausibleChapter(urlChapter) ? urlChapter : null;
+    urlChapter !== null && isPlausibleChapter(urlChapter, config)
+      ? urlChapter
+      : null;
   const chapterNumber = titleChapter ?? trustedUrlChapter;
   if (chapterNumber === null) {
     return { detected: false, reason: "no-chapter-in-title" };
   }
 
-  const mangaName = cleanMangaName(
-    title.value,
-    chapterNumber,
-    extractSeriesSlug(signals.url),
-  );
-  if (mangaName.length === 0) {
+  const name = nameFor(signals, title, candidates, chapterNumber, config);
+  if (name === null) {
     return { detected: false, reason: "no-title" };
   }
 
   const points =
     CHAPTER_BASE_CONFIDENCE +
-    TITLE_CONFIDENCE[title.source] +
+    TITLE_CONFIDENCE[name.source] +
     (titleChapter !== null ? TITLE_CHAPTER_BONUS : 0);
 
   return {
     detected: true,
-    mangaName,
+    mangaName: name.value,
     chapterLabel: `Cap. ${chapterNumber}`,
     confidence: points / 100,
   };
 }
 
-export function extractChapterFromUrl(url: string): string | null {
+type TitleCandidate = { value: string; source: TitleSource };
+
+/**
+ * Where the manga's name comes from, which is not always where the chapter
+ * did.
+ *
+ * - A series link the theme or the site's rule pointed at is the series
+ *   page's own name for itself, and wins: a chapter heading may abbreviate it
+ *   (uchuujinmangas: "Villanos Correctamente Capítulo 55" for "Cómo Criar
+ *   Villanos Correctamente").
+ * - Otherwise, the source that named the chapter, cleaned.
+ * - When cleaning leaves nothing — the source was the chapter alone, as
+ *   Madara's #chapter-heading often is ("Capitulo 48") — the next source that
+ *   still has a name in it, the validated series link first.
+ *
+ * The URL's own slug, or the series link's when the URL carries none
+ * (heavenmanga: /manga/leer/293702), confirms where the real name starts once
+ * a leading "Leer" is taken off.
+ */
+function nameFor(
+  signals: PageSignals,
+  title: TitleCandidate,
+  candidates: readonly TitleCandidate[],
+  chapterNumber: string,
+  config: DetectionConfig,
+): TitleCandidate | null {
+  // Among the candidates only when it is not the site's own branding, and
+  // never when it names a chapter — a selector that lands on the chapter's
+  // own breadcrumb would otherwise name the manga "Capítulo 12".
+  const hinted = signals.seriesLinkHinted
+    ? candidates.find((candidate) => candidate.source === "series-link")
+    : undefined;
+  if (hinted && extractChapterFromTitle(hinted.value, config) === null) {
+    return hinted;
+  }
+  const slug = extractSeriesSlug(signals.url, config) ?? signals.seriesLinkSlug;
+  const ordered = [
+    title,
+    ...candidates.filter((candidate) => candidate.source === "series-link"),
+    ...candidates.filter(
+      (candidate) => candidate !== title && candidate.source !== "series-link",
+    ),
+  ];
+  for (const candidate of ordered) {
+    const value = cleanMangaName(candidate.value, chapterNumber, slug, config);
+    if (value.length > 0) {
+      return { value, source: candidate.source };
+    }
+  }
+  return null;
+}
+
+export function extractChapterFromUrl(
+  url: string,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): string | null {
   const pathname = pathnameOf(url);
   if (pathname === null) {
     return null;
   }
-  for (const pattern of CHAPTER_URL_PATTERNS) {
+  for (const pattern of config.chapterUrlPatterns) {
     const match = pattern.exec(pathname);
     if (match?.[1]) {
       return match[1].replace(",", ".");
@@ -157,14 +194,23 @@ export function extractChapterFromUrl(url: string): string | null {
   return null;
 }
 
-export function isReaderPath(url: string): boolean {
+export function isReaderPath(
+  url: string,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): boolean {
   const pathname = pathnameOf(url);
-  return pathname !== null && READER_PATH_PATTERN.test(pathname);
+  return (
+    pathname !== null &&
+    config.readerPathPatterns.some((pattern) => pattern.test(pathname))
+  );
 }
 
-function isPlausibleChapter(chapter: string): boolean {
+// No real chapter needs more integer digits than the config allows; longer URL
+// numbers are internal ids (olympus: /capitulo/130729/, ikigai:
+// /capitulo/118774…393/).
+function isPlausibleChapter(chapter: string, config: DetectionConfig): boolean {
   const integerPart = chapter.split(".")[0] ?? chapter;
-  return integerPart.length <= MAX_URL_CHAPTER_DIGITS;
+  return integerPart.length <= config.maxUrlChapterDigits;
 }
 
 // Where the series ends and the chapter begins: the path up to and including
@@ -176,6 +222,7 @@ function isPlausibleChapter(chapter: string): boolean {
 // URL — and they must never disagree about it, so it is computed once here.
 function seriesPathPrefix(
   url: string,
+  config: DetectionConfig,
 ): { origin: string; prefix: string; slug: string } | null {
   let parsed: URL;
   try {
@@ -183,14 +230,14 @@ function seriesPathPrefix(
   } catch {
     return null;
   }
-  for (const pattern of CHAPTER_URL_PATTERNS) {
+  for (const pattern of config.chapterUrlPatterns) {
     const match = pattern.exec(parsed.pathname);
     if (match?.[1]) {
       const prefix = parsed.pathname.slice(0, match.index);
       const slug = prefix.split("/").filter(Boolean).at(-1);
       if (
         slug === undefined ||
-        SECTION_SEGMENTS.has(slug.toLowerCase()) ||
+        config.sectionSegments.has(slug.toLowerCase()) ||
         !/[a-z]/i.test(slug)
       ) {
         return null;
@@ -204,8 +251,11 @@ function seriesPathPrefix(
 // The path segment right before the chapter marker is usually the series slug
 // (/series/<slug>/capitulo-89/). Section names and numeric ids are not
 // usable as a title.
-export function extractSeriesSlug(url: string): string | null {
-  return seriesPathPrefix(url)?.slug ?? null;
+export function extractSeriesSlug(
+  url: string,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): string | null {
+  return seriesPathPrefix(url, config)?.slug ?? null;
 }
 
 /**
@@ -223,8 +273,11 @@ export function extractSeriesSlug(url: string): string | null {
  * would otherwise mint a key that two different series share, which is worse
  * than having none.
  */
-export function seriesUrlFromChapterPath(url: string): string | null {
-  const series = seriesPathPrefix(url);
+export function seriesUrlFromChapterPath(
+  url: string,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): string | null {
+  const series = seriesPathPrefix(url, config);
   if (series === null) {
     return null;
   }
@@ -247,9 +300,12 @@ function pathnameOf(url: string): string | null {
   }
 }
 
-export function extractChapterFromTitle(title: string): string | null {
+export function extractChapterFromTitle(
+  title: string,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
+): string | null {
   const match = new RegExp(
-    `\\b${CHAPTER_WORDS}\\s*(\\d+(?:[.,]\\d+)?)`,
+    `\\b${config.chapterWords}\\s*(\\d+(?:[.,]\\d+)?)`,
     "i",
   ).exec(title);
   const captured = match?.[1];
@@ -295,10 +351,15 @@ function hostnameOf(url: string): string | null {
   }
 }
 
-function pickTitle(
+/** Every title the page offers, best first, the site's own branding left out. */
+function titleCandidates(
   signals: PageSignals,
-): { value: string; source: TitleSource } | null {
-  const candidates: { value: string; source: TitleSource }[] = [];
+  config: DetectionConfig,
+): TitleCandidate[] {
+  const candidates: TitleCandidate[] = [];
+  if (signals.themeHeading) {
+    candidates.push({ value: signals.themeHeading, source: "theme-heading" });
+  }
   if (signals.ogTitle) {
     candidates.push({ value: signals.ogTitle, source: "og" });
   }
@@ -315,52 +376,29 @@ function pickTitle(
   if (documentTitle) {
     candidates.push({ value: documentTitle, source: "document-title" });
   }
-  const slug = extractSeriesSlug(signals.url);
+  const slug = extractSeriesSlug(signals.url, config);
   if (slug) {
     candidates.push({ value: humanizeSlug(slug), source: "url-slug" });
   }
   const identity = siteIdentityTokens(signals);
-  const usable = candidates.filter(
+  return candidates.filter(
     (candidate) => !isSiteBranding(candidate.value, identity),
-  );
-  // A source naming the chapter beats a higher-priority one that does not:
-  // SPA readers often carry the chapter only in document.title while a site
-  // logo occupies the h1.
-  return (
-    usable.find(
-      (candidate) => extractChapterFromTitle(candidate.value) !== null,
-    ) ??
-    usable[0] ??
-    null
   );
 }
 
 // Sites wrap the title in an imperative call to action or a section label
 // (lectorxd: "Leer <Name> Capítulo 56"; manhwa-latino: "MANGA <Name>"). A
-// prefix word is only stripped when the URL's own series slug confirms the
-// word after it is where the real name starts — genuine titles beginning
-// with a prefix-shaped word ("Read or Die" slug "read-or-die", "Manga wo
-// Yomeru…" slug "manga-wo-yomeru…") survive untouched. Two passes cover the
-// stacked case ("Leer Manga X").
-const READER_VERB_TOKENS = new Set(["leer", "lee", "ver", "read", "reading"]);
-const SECTION_WORD_TOKENS = new Set([
-  "manga",
-  "manhwa",
-  "manhua",
-  "comic",
-  "comics",
-  "serie",
-  "series",
-]);
-const LEADING_PREFIX_TOKENS = new Set([
-  ...READER_VERB_TOKENS,
-  ...SECTION_WORD_TOKENS,
-]);
+// prefix word (config.leadingPrefixTokens) is only stripped when the series
+// slug confirms the word after it is where the real name starts — genuine
+// titles beginning with a prefix-shaped word ("Read or Die" slug
+// "read-or-die", "Manga wo Yomeru…" slug "manga-wo-yomeru…") survive
+// untouched. Two passes cover the stacked case ("Leer Manga X").
 const LEADING_PREFIX_MAX_PASSES = 2;
 
 function stripLeadingSlugConfirmedPrefix(
   name: string,
   seriesSlug: string | null,
+  config: DetectionConfig,
 ): string {
   if (seriesSlug === null) {
     return name;
@@ -379,7 +417,7 @@ function stripLeadingSlugConfirmedPrefix(
     const prefixToken = normalizeTokens(firstWord ?? "")[0];
     if (
       prefixToken === undefined ||
-      !LEADING_PREFIX_TOKENS.has(prefixToken) ||
+      !config.leadingPrefixTokens.has(prefixToken) ||
       rest === undefined
     ) {
       break;
@@ -403,11 +441,12 @@ export function cleanMangaName(
   rawTitle: string,
   chapterNumber: string,
   seriesSlug: string | null,
+  config: DetectionConfig = DEFAULT_DETECTION_CONFIG,
 ): string {
   let name = rawTitle.split("|")[0] ?? rawTitle;
 
   const escapedNumber = chapterNumber.replace(".", "[.,]");
-  const chapterFragment = `\\b${CHAPTER_WORDS}\\s*${escapedNumber}`;
+  const chapterFragment = `\\b${config.chapterWords}\\s*${escapedNumber}`;
 
   const prefixMatch = new RegExp(`^(.*\\S)\\s*${chapterFragment}`, "i").exec(
     name,
@@ -430,6 +469,7 @@ export function cleanMangaName(
   name = stripLeadingSlugConfirmedPrefix(
     name.replace(/\s+/g, " ").trim(),
     seriesSlug,
+    config,
   );
   return name.trim();
 }

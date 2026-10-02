@@ -115,8 +115,13 @@ CÓMO FUNCIONA
   apretás "Trackear este sitio"; un sitio que no habilitaste nunca es leído.
 • En los sitios habilitados detecta sola el manga y el capítulo mientras leés, y lo registra
   al instante.
-• Si un sitio tiene un diseño que confunde a la detección, lo calibrás con dos clics:
-  marcás dónde está el título y dónde el número de capítulo.
+• Reconoce sin configurar nada los sitios hechos con los temas más usados (Madara,
+  MangaThemesia). Si un sitio tiene un diseño que confunde a la detección, lo calibrás con
+  dos clics: marcás dónde está el título y dónde el número de capítulo.
+• El ícono te dice de un vistazo si el capítulo quedó guardado. Si la detección se equivoca,
+  lo corregís o lo guardás a mano desde la ventanita.
+• "Seguir leyendo": tus últimas series a un clic, con su portada.
+• Podés pausar el tracking cuando quieras, y las ventanas privadas no se registran.
 • Tu historial queda en la aplicación Manga Tracker de tu computadora, en una base de datos
   local, con la biblioteca completa y los capítulos leídos de cada serie.
 
@@ -267,12 +272,14 @@ computer.
 
 Copiá cada una en su campo. Están en inglés a propósito: las lee un revisor de Google.
 
-**`storage`**
+**`storage`** (texto ampliado en 0.2.0; el permiso es el mismo)
 ```
 Stores, locally in the browser: the port the companion application on the user's own
-computer listens on, a cache of per-site parsing rules that application serves, and
-readings made while that application was not answering, kept only until they are
-delivered to it over localhost. Nothing stored is sent anywhere else.
+computer listens on, a cache of the per-site parsing rules and detection settings that
+application serves, the user's own choices in the popup (tracking paused, whether private
+windows are recorded, notices dismissed), and readings made while that application was not
+answering, kept only until they are delivered to it over localhost. Nothing stored is sent
+anywhere else.
 ```
 
 **`alarms`** (desde 0.1.3)
@@ -363,6 +370,27 @@ ya está en `EXTENSION_IDS` (backend) y en `StoreURL` (app de escritorio). Cada 
 
 Las dos ids siguen siendo una decisión, no una tarea pendiente: el build unpacked conserva su
 `key` y el de la tienda no la lleva.
+
+### 0.2.0 — lo que cambia en la ficha
+
+Pensada para no tener que volver a subir otra en mucho tiempo: lo que antes costaba una
+versión (una palabra nueva para "capítulo", un sitio que cambió de dominio, un tema de sitio,
+el umbral de confianza, un aviso) ahora llega con la app de escritorio, por
+`GET /api/extension-config` y `GET /api/site-rules`.
+
+- **Permisos: los mismos que 0.1.4.** La insignia del ícono (`action.setBadgeText`), abrir
+  la biblioteca o el siguiente capítulo (`tabs.create`) y la lista de sitios
+  (`permissions.getAll`) no piden ninguno. Verificarlo antes de subir:
+  `unzip -p .output/manga-tracker-extension-0.2.0-chrome.zip manifest.json` contra el de 0.1.4.
+- **Privacy practices:** cambiar sólo el texto de `storage` por el de arriba. La declaración
+  de datos no cambia: todo sigue yendo a localhost.
+- **"¿Usás código remoto?" → No.** La configuración que llega del backend es JSON — palabras,
+  números, expresiones regulares y selectores CSS que el código empaquetado interpreta —, y
+  sólo desde `localhost`. Ningún script se descarga ni se evalúa.
+- **Descripción:** opcional, el texto de la sección 3 ya trae las funciones nuevas.
+- **Antes de subir**, cargar el build unpacked (`bun run install:local`) en Chrome y en Brave
+  y calibrar a mano un sitio real: el arreglo de los clics del overlay se verificó con una
+  reproducción del DOM de WXT en Chrome, no con la extensión cargada.
 
 ---
 

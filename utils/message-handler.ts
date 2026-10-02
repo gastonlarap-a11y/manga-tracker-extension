@@ -4,15 +4,18 @@ import {
   createAdapter,
   createReadingEvent,
   getLibrary,
+  getRecentlyRead,
   neverReachedServer,
   pingHealth,
   setMangaCover,
   uploadMangaCoverImage,
 } from "./api/client";
+import { resolveBaseUrl } from "./api/discovery";
 import type {
   CreateAdapterBody,
   CreateEventBody,
   CreateEventResponse,
+  LibraryEntryDto,
   MangaDto,
 } from "./api/types";
 import {
@@ -29,27 +32,39 @@ import {
   recordDetection,
 } from "./detection-log";
 import { selectorsForDetection } from "./detection-selectors";
-import type {
-  ContentCommand,
-  MessageResponses,
-  RecordEventResponse,
-  RuntimeMessage,
+import {
+  type ContentCommand,
+  deliveryOf,
+  type MessageResponses,
+  type RecordEventResponse,
+  type RuntimeMessage,
 } from "./messages";
 import { enqueue, flushOutbox, queuedReadings } from "./outbox";
+import {
+  cachedConfig,
+  configForDetection,
+  refreshConfig,
+} from "./remote-config";
 import {
   ensureDetectorRegistered,
   registerSite,
   unregisterSite,
 } from "./site-registration";
 import { rulesForDetection } from "./site-rules";
+import { holdReason } from "./tracking-prefs";
 
 const CALIBRATION_SCRIPT = "/content-scripts/calibration.js" as const;
 
-// What the pixel capture needs to know about the sender's tab: the window to
-// screenshot and whether the tab is the one actually on screen.
+/** How many series "Seguir leyendo" offers. */
+export const RECENT_READING_COUNT = 5;
+
+// What the background needs to know about the sender's tab: the window to
+// screenshot, whether the tab is the one actually on screen, and whether it
+// is a private window.
 export interface SenderTabInfo {
   windowId?: number;
   active?: boolean;
+  incognito?: boolean;
 }
 
 // Business logic behind the background service worker; the entrypoint only
@@ -68,7 +83,17 @@ export function handleMessage(
     case "get-site-rules":
       return rulesForDetection();
     case "record-event":
-      return recordEvent(message.payload);
+      return recordEvent(message.payload, senderTab?.incognito === true);
+    case "record-manual":
+      return recordManual(message.tabId, message.payload);
+    case "get-extension-config":
+      return configForDetection();
+    case "refresh-extension-config":
+      return refreshConfig().then(() => cachedConfig());
+    case "get-recent-reading":
+      return recentReading();
+    case "get-backend-url":
+      return resolveBaseUrl().then((baseUrl) => ({ baseUrl }));
     case "register-site":
       return registerSite(message.originPattern, message.tabId);
     case "unregister-site":
@@ -80,6 +105,7 @@ export function handleMessage(
         recordDetection(senderTabId, {
           url: message.url,
           detection: message.detection,
+          ...(message.facts ? { facts: message.facts } : {}),
         });
       }
       return Promise.resolve(null);
@@ -193,7 +219,21 @@ async function captureCoverPixels(
  */
 async function recordEvent(
   payload: CreateEventBody,
+  incognito: boolean,
 ): Promise<RecordEventResponse> {
+  // Checked here, where every reading passes, rather than in each detector:
+  // a detector loaded before the pause was turned on must obey it too.
+  const held = await holdReason(incognito);
+  if (held !== null) {
+    return {
+      ok: false,
+      error:
+        held === "paused"
+          ? "El tracking está en pausa."
+          : "Las ventanas privadas no se guardan.",
+      held,
+    };
+  }
   const result = await recordEventWithCover(payload);
   if (neverReachedServer(result)) {
     try {
@@ -210,6 +250,68 @@ async function recordEvent(
   // not wait on everything that queued up before it.
   void flushReadings();
   return result;
+}
+
+/**
+ * "Guardar a mano": a reading someone typed in the popup, for a page detection
+ * missed or misread. Recorded like any other — the outbox, the pause and the
+ * private-window rule all apply — and logged against the tab so the popup and
+ * the badge say what became of it.
+ */
+async function recordManual(
+  tabId: number,
+  payload: CreateEventBody,
+): Promise<RecordEventResponse> {
+  let incognito = false;
+  try {
+    incognito = (await browser.tabs.get(tabId)).incognito;
+  } catch {
+    // The tab closed under the popup; the reading is still the user's.
+  }
+  const previous = getDetection(tabId);
+  recordDetection(tabId, {
+    url: payload.sourceUrl,
+    detection: {
+      detected: true,
+      mangaName: payload.mangaName,
+      chapterLabel: payload.chapterLabel,
+      confidence: 1,
+    },
+    ...(previous?.url === payload.sourceUrl && previous.facts
+      ? { facts: previous.facts }
+      : {}),
+  });
+  const result = await recordEvent(payload, incognito);
+  recordDelivery(tabId, payload.sourceUrl, deliveryOf(result));
+  return result;
+}
+
+/**
+ * The series read most recently. A backend older than the paged library
+ * (before 0.1.19) answers 404, and gets the whole library sorted here
+ * instead — slower, and only ever on a machine that has not updated.
+ */
+async function recentReading(): Promise<ApiResult<LibraryEntryDto[]>> {
+  const page = await getRecentlyRead(RECENT_READING_COUNT);
+  if (page.ok) {
+    return { ok: true, data: page.data.items };
+  }
+  if (page.status !== 404) {
+    return page;
+  }
+  const library = await getLibrary();
+  if (!library.ok) {
+    return library;
+  }
+  const readAt = (entry: LibraryEntryDto) =>
+    entry.lastActivity ? Date.parse(entry.lastActivity.readAt) : 0;
+  return {
+    ok: true,
+    data: library.data
+      .filter((entry) => entry.status === "reading")
+      .sort((a, b) => readAt(b) - readAt(a))
+      .slice(0, RECENT_READING_COUNT),
+  };
 }
 
 /**

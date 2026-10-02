@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 import type { SiteRuleDto } from "./api/types";
 import {
   CACHE_TTL_MS,
   cachedRules,
+  onCanonicalHost,
   refreshRules,
   ruleForHost,
   rulesForDetection,
@@ -79,6 +80,41 @@ describe("ruleForHost", () => {
     expect(ruleForHost(rules, "lectorxd.com")).toBeNull();
     // A different site that merely ends the same way is not a subdomain.
     expect(ruleForHost(rules, "notmanhwaweb.com")).toBeNull();
+  });
+
+  it("finds a site read on one of its aliases", () => {
+    const moved = [rule({ aliases: ["manhwaweb.net"] })];
+
+    expect(ruleForHost(moved, "manhwaweb.net")?.domain).toBe("manhwaweb.com");
+    expect(ruleForHost(moved, "www.manhwaweb.net")?.domain).toBe(
+      "manhwaweb.com",
+    );
+    // A rule cached from a backend older than aliases has no field at all.
+    expect(ruleForHost([rule()], "manhwaweb.net")).toBeNull();
+  });
+});
+
+describe("aliases and series identity", () => {
+  it("keys a series read on an alias as if it were on the domain", () => {
+    // The point of an alias: a site moving must not split one series into a
+    // card per domain it has lived on.
+    const moved = rule({ aliases: ["manhwaweb.net"] });
+
+    expect(
+      seriesFromRule(
+        moved,
+        "https://manhwaweb.net/leer/dragona_1750256573107-36_01",
+      )?.url,
+    ).toBe("https://manhwaweb.com/leer/dragona_1750256573107");
+  });
+
+  it("leaves a URL on the domain itself untouched", () => {
+    const moved = rule({ aliases: ["manhwaweb.net"] });
+
+    expect(onCanonicalHost(moved, "https://manhwaweb.com/a")).toBe(
+      "https://manhwaweb.com/a",
+    );
+    expect(onCanonicalHost(moved, "not a url")).toBe("not a url");
   });
 });
 

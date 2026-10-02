@@ -32,57 +32,13 @@ type CachedRules = {
   fetchedAt: number;
 };
 
-/**
- * The rule for a host, or null when the generic heuristics are enough.
- *
- * Matches subdomains too, so a site read on `www.` or on a regional host still
- * finds its rule.
- */
-export function ruleForHost(
-  rules: readonly SiteRuleDto[],
-  host: string,
-): SiteRuleDto | null {
-  const needle = host.toLowerCase().replace(/^www\./, "");
-  return (
-    rules.find(
-      (rule) => needle === rule.domain || needle.endsWith(`.${rule.domain}`),
-    ) ?? null
-  );
-}
-
-/**
- * The series page a rule derives from a chapter URL, or null when it does not
- * apply.
- *
- * `navigable` travels with it because the two consumers want different things:
- * the reading event needs an identity, while the cover hunt downloads the page.
- * An identity that was assembled rather than found is fine as a key and useless
- * as an address.
- */
-export function seriesFromRule(
-  rule: SiteRuleDto,
-  url: string,
-): { url: string; navigable: boolean } | null {
-  if (rule.series === null) {
-    return null;
-  }
-  let match: RegExpExecArray | null;
-  try {
-    match = new RegExp(rule.series.pattern, "i").exec(url);
-  } catch {
-    // A malformed pattern is a bug in the catalogue, not a reason to stop
-    // detecting on the page in front of the reader.
-    return null;
-  }
-  const captured = match?.[1];
-  if (!captured) {
-    return null;
-  }
-  return {
-    url: rule.series.template.replace("$1", captured),
-    navigable: rule.series.navigable,
-  };
-}
+// Reading a rule is pure and lives with detection; re-exported so callers that
+// fetch rules and read them import from one place.
+export {
+  onCanonicalHost,
+  ruleForHost,
+  seriesFromRule,
+} from "./detection/site-rule";
 
 /** The cached rules, however old, or an empty list if there are none yet. */
 export async function cachedRules(): Promise<SiteRuleDto[]> {

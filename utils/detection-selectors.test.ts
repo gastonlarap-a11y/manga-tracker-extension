@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 import { baseUrlFor, DEFAULT_PORT, rememberBaseUrl } from "./api/discovery";
 import type { SiteAdapterDto, SiteRuleDto } from "./api/types";
 import { selectorsForDetection } from "./detection-selectors";

@@ -14,8 +14,17 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - `utils/` — shared logic (auto-importable dir, but imports are explicit via `#imports`/`@/`)
   - `utils/api/` — backend contract types (hand-duplicated), fetch client, and
     `discovery.ts` (finds the backend's port and caches it in `storage.session`)
-  - `utils/detection/` — pure detection pipeline: page signals → adapter or
-    heuristics → confidence (threshold 0.7 gates auto-send)
+  - `utils/detection/` — pure detection pipeline: `detect.ts` (`readPage`: calibration or
+    curated selectors → heuristics fed the site's rule and theme), `config.ts` (the
+    heuristic's vocabulary and thresholds, compiled defaults plus the backend's additions),
+    `themes.ts` (Madara, MangaThemesia… recognised by markup), `page-signals.ts`,
+    `heuristics.ts`, `site-rule.ts` (reading one rule; aliases)
+  - `utils/remote-config.ts` — the backend's extension config (tuning, themes, notices,
+    reading settings), cached and validated field by field
+  - `utils/tracking-prefs.ts` — pause, private windows, dismissed notices (`storage.local`)
+  - `utils/badge.ts` — the toolbar badge per tab, from the detection log
+  - `utils/reading-gate.ts` — "lectura real": when a page counts as read
+  - `utils/popup-model.ts` — every sentence the popup says, as plain functions
   - `utils/message-handler.ts` — background business logic (entrypoint stays thin)
   - `utils/site-registration.ts` — runtime registration of the detector per granted origin
   - `utils/detection-log.ts` — last detection per tab (in-memory), feeds the popup diagnosis
@@ -40,6 +49,12 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - Test: `bun run test` (vitest, not `bun test`) · Single test: `bunx vitest run <file>`
 - Lint: `bun run lint` · Format: `bun run format` · Typecheck: `bun run typecheck`
 - Dev: `bun run dev` (HMR into `.output/chrome-mv3-dev/`) · Build: `bun run build`
+- Live sites: `bun run check:sites [--backend http://127.0.0.1:<port>] [--only <host>]
+  [--url <chapter url>]` — the real pipeline over `scripts/sites.json` (home pages only;
+  someone's reading history never goes in the repo). Network, so never in CI: run it before a
+  release and when a site stops tracking. "bloqueado" is a bot challenge the script cannot
+  pass, not a detection failure; SPA sites (manhwaweb) render their title in JavaScript and
+  read nothing here
 
 > `typescript@7` is the native compiler (tsgo) — there is no `tsserver.js`, which is why
 > `typescript-lsp@claude-plugins-official` stays disabled in `.claude/settings.json`.
@@ -89,8 +104,40 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
 - Manga-site host permissions are requested at runtime (`optional_host_permissions`),
   never added statically to the manifest. Tracking is opt-in per site: the popup requests
   the permission (user gesture) and the background registers the detector for that origin.
-- Detection never auto-sends below the 0.7 confidence threshold, and a page without a
-  chapter marker in its URL (catalog/home pages) is never reported.
+- Detection never auto-sends below the confidence threshold (0.7 compiled; the backend may
+  move it, globally or per site), and a page without a chapter marker in its URL
+  (catalog/home pages) is never reported — unless a site theme's reader marker is on it:
+  MangaThemesia carries the chapter mid-segment (`/<slug>-capitulo-12/`), where no URL
+  pattern looks.
+- **The heuristic is tunable from the backend, by addition only** (`utils/detection/config.ts`
+  ← `GET /api/extension-config`). Words, URL patterns, section names and prefixes from the
+  backend are added to the compiled ones; numbers replace theirs within bounds; anything
+  malformed is dropped on its own. A remote edit can teach, never remove — "capítulo" taken
+  away would stop every site at once. Everything remote is data the compiled code interprets,
+  never code: MV3 forbids it and the Web Store reviews for it.
+- **Precedence on a page: calibration > the site's curated selectors > its theme > the
+  generic heuristic.** A theme or rule only *hints* (`PageHints`): a heading, a series link,
+  a reader marker; the heuristic still decides. The chapter and the name may come from
+  different places: a hinted series link names the manga (a chapter heading abbreviates it on
+  some sites), and a heading that is the chapter alone ("Capitulo 48", Madara) gives the
+  number and leaves the name to the next source.
+- **A series link is a parent of the chapter, the one a theme or rule points at, or a sibling
+  the page title vouches for** (heavenmanga: `/manga/leer/<id>` links to `/manga/<slug>`). A
+  sibling needs the chapter's first path segment and a title that names it followed by where
+  a name ends — so "Solo Leveling" in a sidebar cannot claim "Solo Leveling Ragnarok Capítulo
+  5". A link to a section (`/manga/`) is never a series.
+- **Pause and private windows hold a reading in the background**, where every reading passes,
+  so a detector loaded before the pause obeys it too. Private windows do not record unless
+  the person turns it on; a held reading is not queued either.
+- **"Lectura real" is off by default** and comes with the extension config (edited in the
+  dashboard's Extensión page): visible time and scroll, both, either dropped at 0. A page
+  that cannot scroll is read to the bottom by definition.
+- **The calibration overlay must never take the pointer.** WXT's `position: "modal"` pins
+  its container over the viewport, and that container used to be the target of every click,
+  which the overlay then discarded as its own — calibrating did nothing. The container is
+  `pointer-events: none` (only the bar opts back in), the pick is made from
+  `document.elementsFromPoint` skipping whatever covers the viewport (manga sites lay a
+  transparent ad layer over the page), and a rejected click says why on screen.
 - **What this extension knows about individual sites comes from the backend** (`utils/site-rules.ts`
   ← `GET /api/site-rules`), never compiled in. Publishing here costs a Chrome Web Store review,
   so a regex for one new site used to mean days of waiting; the backend ships with the desktop
@@ -100,6 +147,8 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   catalogue, not here.
 - **The series identity has three sources, in this order: a curated rule from the backend, the
   page's own anchor (`seriesUrlFrom`), then the chapter path (`seriesUrlFromChapterPath`).**
+  A rule matched through an alias reads the URL as if it were on the rule's domain, so a site
+  moving does not split its series into a card per domain.
   A rule that *composes* an identity rather than finding one carries `navigable: false`, and
   that URL is kept away from the cover hunt: it fetches the series page, and asking a site for
   an address it never published reads as "this manga has no cover". The anchor alone
@@ -118,8 +167,8 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   carries on unaffected.
 
 ## Engineering standards
-- Every feature ships with its tests (vitest; fake-browser via `wxt/testing` for
-  `browser.*` APIs). Run `bun run lint` + `bun run typecheck` + `bun run test` before
+- Every feature ships with its tests (vitest; fake-browser via `wxt/testing/fake-browser`
+  for `browser.*` APIs). Run `bun run lint` + `bun run typecheck` + `bun run test` before
   declaring work done; report real results.
 - Handle errors explicitly at boundaries: the API client returns
   `ApiResult<T> = { ok: true; data } | { ok: false; error }` — no thrown exceptions
