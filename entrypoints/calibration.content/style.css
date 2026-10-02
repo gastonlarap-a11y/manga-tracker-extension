@@ -1,58 +1,154 @@
-/* The backdrop covers the viewport but lets every event through: picks land
-   on the page itself and are captured at document level. Only the bar is
-   interactive. */
-.backdrop {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2147483647;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* Nothing here takes the pointer except the bar: the container is made
+   transparent to it in index.tsx, and that is inherited all the way down.
+   Picks land on the page itself and are captured at window level. */
+.layer {
+  font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.highlight {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 4px oklch(0.74 0.15 280 / 0.18);
+  transition:
+    top var(--dur-fast) var(--ease-out),
+    left var(--dur-fast) var(--ease-out),
+    width var(--dur-fast) var(--ease-out),
+    height var(--dur-fast) var(--ease-out);
+}
+
+.highlight-label {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -2px;
+  max-width: min(60vw, 420px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.highlight-label.below {
+  bottom: auto;
+  top: calc(100% + 6px);
 }
 
 .bar {
   pointer-events: auto;
-  position: absolute;
-  top: 16px;
+  position: fixed;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  max-width: min(92vw, 720px);
-  background: #1a1b26;
-  color: #c0caf5;
-  border: 1px solid #2f334d;
-  border-radius: 10px;
-  padding: 0.6rem 1rem;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  gap: 16px;
+  width: max-content;
+  max-width: min(92vw, 760px);
+  padding: 12px 14px 12px 18px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-lg);
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-lg);
+  animation: rise var(--dur) var(--ease-out);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .highlight {
+    animation: none;
+    transition: none;
+  }
+}
+
+.bar-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bar-main p {
+  margin: 0;
 }
 
 .bar strong {
-  color: #7aa2f7;
+  color: var(--accent);
+  font-weight: 650;
 }
 
-.error {
-  color: #f7768e;
+.step {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.picked {
+  display: block;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notice {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warm-soft);
+  color: var(--warm);
+  font-size: 13px;
+}
+
+.good {
+  color: var(--good);
+  font-weight: 600;
 }
 
 .actions {
   display: flex;
-  gap: 0.5rem;
+  flex-shrink: 0;
+  gap: 8px;
   margin-left: auto;
 }
 
 button {
-  background: #7aa2f7;
-  color: #16161e;
-  border: none;
-  border-radius: 6px;
-  padding: 0.3rem 0.8rem;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button:disabled {
@@ -60,13 +156,23 @@ button:disabled {
   cursor: default;
 }
 
-button.ghost {
-  background: transparent;
-  color: #565f89;
-  border: 1px solid #2f334d;
-  font-weight: 400;
+button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
-button.ghost:hover {
-  color: #c0caf5;
+button.primary:hover {
+  background: var(--accent-strong);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
 }

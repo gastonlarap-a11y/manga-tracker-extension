@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 import { baseUrlFor, DEFAULT_PORT, rememberBaseUrl } from "./api/discovery";
-import { flushReadings, handleMessage } from "./message-handler";
+import { getDetection } from "./detection-log";
+import {
+  flushReadings,
+  handleMessage,
+  RECENT_READING_COUNT,
+} from "./message-handler";
+import type { MessageResponses } from "./messages";
 import { enqueue, queuedReadings } from "./outbox";
+import { pausedItem, recordIncognitoItem } from "./tracking-prefs";
 
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
@@ -633,5 +640,145 @@ describe("handleMessage", () => {
     );
     expect(sendMessageMock).toHaveBeenCalledWith(12, { kind: "detect-now" });
     expect(response).toEqual({ ok: true, data: adapter });
+  });
+});
+
+describe("readings held back", () => {
+  const payload = {
+    mangaName: "One Piece",
+    chapterLabel: "Cap. 1100",
+    sourceUrl: "https://example.com/one-piece/capitulo/1100",
+  };
+
+  it("records nothing while tracking is paused, and says why", async () => {
+    await pausedItem.setValue(true);
+
+    const response = await handleMessage({ kind: "record-event", payload });
+
+    expect(response).toMatchObject({ ok: false, held: "paused" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Not queued either: a paused reading is one the person chose not to keep.
+    expect(await queuedReadings()).toHaveLength(0);
+  });
+
+  it("records nothing from a private window unless asked to", async () => {
+    const response = await handleMessage({ kind: "record-event", payload }, 7, {
+      incognito: true,
+    });
+
+    expect(response).toMatchObject({ ok: false, held: "incognito" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("records a private window's reading once that is allowed", async () => {
+    await recordIncognitoItem.setValue(true);
+    fetchMock.mockResolvedValue(
+      jsonResponse({ manga: { id: "m1" }, event: { id: "e1" } }, 201),
+    );
+
+    const response = await handleMessage({ kind: "record-event", payload }, 7, {
+      incognito: true,
+    });
+
+    expect(response).toMatchObject({ ok: true });
+  });
+});
+
+describe("record-manual", () => {
+  const payload = {
+    mangaName: "Soy un Dios Maligno",
+    chapterLabel: "Cap. 567",
+    sourceUrl: "https://heavenmanga.com/manga/leer/293702",
+  };
+
+  beforeEach(() => {
+    // Cast justified: the handler only reads `incognito` off the tab.
+    fakeBrowser.tabs.get = vi.fn().mockResolvedValue({
+      incognito: false,
+    }) as unknown as typeof fakeBrowser.tabs.get;
+  });
+
+  it("records what was typed and logs it against the tab", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ manga: { id: "m9" }, event: { id: "e9" } }, 201),
+    );
+
+    const response = await handleMessage({
+      kind: "record-manual",
+      tabId: 4,
+      payload,
+    });
+
+    expect(response).toMatchObject({ ok: true });
+    expect(getDetection(4)).toEqual({
+      url: payload.sourceUrl,
+      detection: {
+        detected: true,
+        mangaName: "Soy un Dios Maligno",
+        chapterLabel: "Cap. 567",
+        confidence: 1,
+      },
+      delivery: { status: "sent", mangaId: "m9" },
+    });
+  });
+
+  it("keeps the reading for later when the backend is away", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const response = await handleMessage({
+      kind: "record-manual",
+      tabId: 5,
+      payload,
+    });
+
+    expect(response).toMatchObject({ ok: false, queued: true });
+    expect(getDetection(5)?.delivery).toEqual({ status: "queued" });
+  });
+});
+
+describe("get-recent-reading", () => {
+  it("asks the paged library for the few most recent series", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ items: [{ id: "m1" }], nextCursor: null }, 200),
+    );
+
+    const response = await handleMessage({ kind: "get-recent-reading" });
+
+    expect(response).toEqual({ ok: true, data: [{ id: "m1" }] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:5150/api/library/page?sort=recent&status=reading&limit=${RECENT_READING_COUNT}`,
+      expect.anything(),
+    );
+  });
+
+  it("sorts the whole library itself on a backend without the paged one", async () => {
+    const entry = (id: string, readAt: string | null, status = "reading") => ({
+      id,
+      status,
+      lastActivity: readAt ? { readAt, chapterLabel: "Cap. 1" } : null,
+    });
+    fetchMock.mockImplementation(async (input) =>
+      String(input).includes("/library/page")
+        ? jsonResponse({ error: "Not Found" }, 404)
+        : jsonResponse(
+            [
+              entry("old", "2026-01-01T00:00:00Z"),
+              entry("done", "2026-09-01T00:00:00Z", "completed"),
+              entry("new", "2026-09-30T00:00:00Z"),
+              entry("never", null),
+            ],
+            200,
+          ),
+    );
+
+    const response = (await handleMessage({
+      kind: "get-recent-reading",
+    })) as MessageResponses["get-recent-reading"];
+
+    expect(response.ok && response.data.map((manga) => manga.id)).toEqual([
+      "new",
+      "old",
+      "never",
+    ]);
   });
 });

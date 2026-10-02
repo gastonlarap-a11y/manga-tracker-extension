@@ -4,25 +4,39 @@ import {
   fetchCoverImageBytes,
 } from "@/utils/cover-capture";
 import {
+  compileDetectionConfig,
+  DEFAULT_DETECTION_CONFIG,
+} from "@/utils/detection/config";
+import {
   findRenderedCoverElement,
   huntCover,
   isSeriesPath,
   matchLibraryEntry,
   pickSeriesPageCover,
 } from "@/utils/detection/cover-hunt";
-import { detectReading } from "@/utils/detection/detect";
 import {
-  CONFIDENCE_THRESHOLD,
-  seriesUrlFromChapterPath,
-} from "@/utils/detection/heuristics";
-import { seriesUrlFrom } from "@/utils/detection/page-signals";
+  type DetectionContext,
+  readPage,
+  settleDelayFor,
+  thresholdFor,
+} from "@/utils/detection/detect";
+import { seriesUrlFromChapterPath } from "@/utils/detection/heuristics";
+import { ruleForHost, seriesFromRule } from "@/utils/detection/site-rule";
 import type { CoverHealStatus } from "@/utils/detection-log";
-import { isContentCommand, sendRuntimeMessage } from "@/utils/messages";
-import { ruleForHost, seriesFromRule } from "@/utils/site-rules";
+import {
+  deliveryOf,
+  isContentCommand,
+  sendRuntimeMessage,
+} from "@/utils/messages";
+import {
+  isRead,
+  type ReadingRequirement,
+  requirementFrom,
+  scrollPercent,
+} from "@/utils/reading-gate";
 
-// SPAs swap content without reloading; wait for the page to settle before
-// detecting (project plan, phase 6/8).
-const SETTLE_DELAY_MS = 2000;
+// How often a page waiting on "lectura real" checks whether it has been read.
+const READING_CHECK_MS = 1000;
 
 // Bounded polling for the series-page cover capture (~10.5s total): long
 // enough for a slow ficha to render and its hero image to get a src.
@@ -50,27 +64,67 @@ export default defineContentScript({
     let lastReportedUrl: string | null = null;
     let lastCoverCheckUrl: string | null = null;
     let activeCaptureUrl: string | null = null;
+    // A page waiting to be read, so a title change while it waits does not
+    // start a second wait for the same chapter.
+    let waitingUrl: string | null = null;
     let settleTimer: number | undefined;
+    // The first page waits the compiled delay; once the backend has said how
+    // long this site needs, later ones wait that.
+    let settleDelayMs = DEFAULT_DETECTION_CONFIG.settleDelayMs;
+
+    /**
+     * Everything the backend said that bears on this page, from the
+     * background's caches — none of it waits on the network once cached.
+     */
+    async function loadContext(): Promise<{
+      context: DetectionContext;
+      requirement: ReadingRequirement | null;
+    }> {
+      const [rules, remote] = await Promise.all([
+        sendRuntimeMessage({ kind: "get-site-rules" }),
+        sendRuntimeMessage({ kind: "get-extension-config" }),
+      ]);
+      const config = compileDetectionConfig(remote?.detection);
+      const rule = ruleForHost(rules, location.hostname);
+      settleDelayMs = settleDelayFor(rule, config);
+      return {
+        context: { config, themes: remote?.themes ?? [], rule },
+        requirement: requirementFrom(remote?.reading),
+      };
+    }
 
     async function detectAndReport(): Promise<void> {
       const url = location.href;
-      if (url === lastReportedUrl) {
+      if (url === lastReportedUrl || url === waitingUrl) {
         return;
       }
 
       // The site's calibration, or its curated rule — served from the
       // background's cache when the backend is away, so a calibrated site is
       // still detected while its readings wait in the outbox.
-      const selectors = await sendRuntimeMessage({
-        kind: "get-selectors",
-        domain: location.hostname,
-      });
+      const [selectors, { context, requirement }] = await Promise.all([
+        sendRuntimeMessage({
+          kind: "get-selectors",
+          domain: location.hostname,
+        }),
+        loadContext(),
+      ]);
 
-      const detection = detectReading(document, url, selectors);
+      const reading = readPage(document, url, selectors, context);
+      const { detection } = reading;
       // The background keeps the last run per tab so the popup can explain
-      // why a page did or did not track.
-      console.debug("[manga-tracker] detection", url, detection);
-      void sendRuntimeMessage({ kind: "report-detection", url, detection });
+      // why a page did or did not track, and offer what the page links to.
+      console.debug("[manga-tracker] detection", url, reading);
+      void sendRuntimeMessage({
+        kind: "report-detection",
+        url,
+        detection,
+        facts: {
+          theme: reading.theme,
+          seriesLinkUrl: reading.seriesLinkUrl,
+          nextUrl: reading.nextUrl,
+        },
+      });
       if (!detection.detected) {
         // Level 4 of the cover hunt: not a chapter, but it may be the RENDERED
         // series page of a tracked manga (the only place SPAs show the cover).
@@ -82,21 +136,44 @@ export default defineContentScript({
         }
         return;
       }
-      if (detection.confidence < CONFIDENCE_THRESHOLD) {
+      if (detection.confidence < thresholdFor(context.rule, context.config)) {
+        void sendRuntimeMessage({
+          kind: "report-delivery",
+          url,
+          delivery: { status: "below-threshold" },
+        });
         return;
+      }
+
+      if (requirement !== null) {
+        void sendRuntimeMessage({
+          kind: "report-delivery",
+          url,
+          delivery: { status: "waiting", ...requirement },
+        });
+        waitingUrl = url;
+        const read = await waitUntilRead(url, requirement).finally(() => {
+          waitingUrl = null;
+        });
+        if (!read) {
+          // Left before reading it: not a chapter read.
+          return;
+        }
       }
 
       // Stable identity within this site, independent of how the site writes
       // its <title> today. Three sources, in order of how much they know:
       // a curated rule from the backend is a deliberate statement about this
-      // site; the anchor is evidence the page itself gives; the path is the
-      // generic guess. Omitted when none of them can say.
-      const rules = await sendRuntimeMessage({ kind: "get-site-rules" });
-      const rule = ruleForHost(rules, location.hostname);
-      const ruled = rule === null ? null : seriesFromRule(rule, url);
-      const anchorUrl = seriesUrlFrom(document, url);
+      // site; the anchor (found by the site's rule, its theme, or the page's
+      // own links) is evidence the page itself gives; the path is the generic
+      // guess. Omitted when none of them can say.
+      const ruled =
+        context.rule === null ? null : seriesFromRule(context.rule, url);
+      const anchorUrl = reading.seriesLinkUrl;
       const seriesUrl =
-        ruled?.url ?? anchorUrl ?? seriesUrlFromChapterPath(url);
+        ruled?.url ??
+        anchorUrl ??
+        seriesUrlFromChapterPath(url, context.config);
       // What the cover hunt may download. A rule that composes an identity
       // rather than finding one names no page, and asking the site for it
       // would read as "this manga has no cover".
@@ -116,11 +193,7 @@ export default defineContentScript({
       void sendRuntimeMessage({
         kind: "report-delivery",
         url,
-        delivery: recorded.ok
-          ? { status: "sent" }
-          : "queued" in recorded
-            ? { status: "queued" }
-            : { status: "failed", error: recorded.error },
+        delivery: deliveryOf(recorded),
       });
       if (!recorded.ok) {
         console.debug(
@@ -368,6 +441,82 @@ export default defineContentScript({
       return new Promise((resolve) => ctx.setTimeout(resolve, ms));
     }
 
+    /**
+     * Resolves true once the page has been read as the settings ask, false
+     * the moment the tab moves on to another page (or this script is torn
+     * down). Time counts only while the tab is visible; scroll counts the
+     * window's and any inner reader container's, whichever got further.
+     */
+    function waitUntilRead(
+      url: string,
+      requirement: ReadingRequirement,
+    ): Promise<boolean> {
+      return new Promise((resolve) => {
+        let visibleMs = 0;
+        let maxScrolled = 0;
+        let last = performance.now();
+        let done = false;
+
+        const windowPercent = () =>
+          scrollPercent(
+            window.scrollY,
+            window.innerHeight,
+            document.documentElement.scrollHeight,
+          );
+        // Capture phase on document: scroll does not bubble, and some
+        // readers scroll a container rather than the window.
+        const onScroll = (event: Event) => {
+          const target = event.target;
+          const percent =
+            target instanceof Element
+              ? scrollPercent(
+                  target.scrollTop,
+                  target.clientHeight,
+                  target.scrollHeight,
+                )
+              : windowPercent();
+          maxScrolled = Math.max(maxScrolled, percent);
+        };
+        document.addEventListener("scroll", onScroll, {
+          capture: true,
+          passive: true,
+        });
+
+        const finish = (read: boolean) => {
+          if (done) {
+            return;
+          }
+          done = true;
+          window.clearInterval(timer);
+          document.removeEventListener("scroll", onScroll, true);
+          resolve(read);
+        };
+        const timer = ctx.setInterval(() => {
+          const now = performance.now();
+          if (document.visibilityState === "visible") {
+            visibleMs += now - last;
+          }
+          last = now;
+          if (location.href !== url) {
+            finish(false);
+            return;
+          }
+          // The window's current position counts too: a page that cannot
+          // scroll is at 100 % without a single scroll event. Only real
+          // scrolls are remembered, so a reader whose images had not loaded
+          // yet (a short page, briefly) does not pass on that alone.
+          const progress = {
+            visibleMs,
+            maxScrollPercent: Math.max(maxScrolled, windowPercent()),
+          };
+          if (isRead(progress, requirement)) {
+            finish(true);
+          }
+        }, READING_CHECK_MS);
+        ctx.onInvalidated(() => finish(false));
+      });
+    }
+
     function scheduleDetection(): void {
       window.clearTimeout(settleTimer);
       settleTimer = ctx.setTimeout(() => {
@@ -377,7 +526,7 @@ export default defineContentScript({
         detectAndReport().catch((cause: unknown) =>
           console.debug("[manga-tracker] detection stopped", cause),
         );
-      }, SETTLE_DELAY_MS);
+      }, settleDelayMs);
     }
 
     scheduleDetection();

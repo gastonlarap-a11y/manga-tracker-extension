@@ -3,8 +3,10 @@ import type {
   CreateAdapterBody,
   CreateEventBody,
   CreateEventResponse,
+  ExtensionConfigDto,
   HealthResponse,
   LibraryEntryDto,
+  LibraryPageDto,
   MangaDto,
   SiteAdapterDto,
   SiteRuleDto,
@@ -60,6 +62,30 @@ export function createReadingEvent(
 
 export function getLibrary(): Promise<ApiResult<LibraryEntryDto[]>> {
   return request<LibraryEntryDto[]>("/api/library");
+}
+
+/**
+ * The series read most recently, without asking for the whole library: the
+ * popup shows five, and a library of thousands is megabytes of JSON.
+ */
+export function getRecentlyRead(
+  limit: number,
+): Promise<ApiResult<LibraryPageDto>> {
+  const query = new URLSearchParams({
+    sort: "recent",
+    status: "reading",
+    limit: String(limit),
+  });
+  return request<LibraryPageDto>(`/api/library/page?${query}`);
+}
+
+/**
+ * Detection tuning, site themes, notices and the reading settings, in one
+ * request. A backend older than 0.1.22 answers 404, which callers treat as
+ * "nothing to add to the compiled defaults".
+ */
+export function getExtensionConfig(): Promise<ApiResult<ExtensionConfigDto>> {
+  return request<ExtensionConfigDto>("/api/extension-config");
 }
 
 // Used by the opportunistic cover capture on rendered series pages; only

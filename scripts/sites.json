@@ -1,0 +1,42 @@
+[
+  {
+    "url": "https://heavenmanga.com/",
+    "note": "custom; chapter url carries no series"
+  },
+  { "url": "https://lectorxd.com/", "note": "custom; /<type>/<slug>/leer/<n>" },
+  { "url": "https://mhscans.com/", "note": "Madara" },
+  { "url": "https://manhwa-latino.com/", "note": "Madara" },
+  { "url": "https://mangasnosekai.com/", "note": "Madara (no ajax)" },
+  { "url": "https://olympusxyz.com/", "note": "SPA: rendered in JavaScript" },
+  { "url": "https://manhwaweb.com/", "note": "SPA: rendered in JavaScript" },
+  { "url": "https://dragontranslation.org/", "note": "Madara" },
+  { "url": "https://toon-es.com/", "note": "Madara" },
+  { "url": "https://mundomanhwa.com/", "note": "Madara" },
+  { "url": "https://ragnarokscanlation.org/", "note": "Madara" },
+  { "url": "https://lectortaurus.com/", "note": "Madara" },
+  { "url": "https://apollcomics.es/", "note": "Madara" },
+  { "url": "https://vermanhwa.com/", "note": "Madara" },
+  { "url": "https://scan-inmortal.com/", "note": "Madara" },
+  { "url": "https://imperiomanhua.com/", "note": "Madara" },
+  { "url": "https://manhwa-online.com/", "note": "Madara" },
+  { "url": "https://kazokuden.com/", "note": "Madara" },
+  { "url": "https://mangatv.net/", "note": "MangaThemesia" },
+  { "url": "https://skymangas.com/", "note": "MangaThemesia" },
+  { "url": "https://bloomscans.com/", "note": "MangaThemesia" },
+  { "url": "https://nekoproject.org/", "note": "MangaThemesia" },
+  { "url": "https://novamanhwa.cc/", "note": "MangaThemesia" },
+  { "url": "https://uchuujinmangas.com/", "note": "MangaThemesia" },
+  { "url": "https://legionscans.com/wp/", "note": "MangaThemesia" },
+  { "url": "https://mangamukai.com/", "note": "MangaThemesia" },
+  { "url": "https://celestialmoonscan.es/", "note": "MangaThemesia" },
+  { "url": "https://asialotuss.com/", "note": "MangaThemesia" },
+  { "url": "https://sapphirescan.com/", "note": "ZeistManga (Blogger)" },
+  {
+    "url": "https://datgarscanlation.blogspot.com/",
+    "note": "ZeistManga (Blogger)"
+  },
+  { "url": "https://inmanga.com/", "note": "custom" },
+  { "url": "https://leercapitulo.co/", "note": "custom" },
+  { "url": "https://manga-oni.com/", "note": "custom" },
+  { "url": "https://zonatmo.to/", "note": "custom (TuMangaOnline)" }
+]

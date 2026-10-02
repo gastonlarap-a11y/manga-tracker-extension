@@ -25,6 +25,76 @@ describe("isRuntimeMessage", () => {
     expect(isRuntimeMessage({ kind: "get-outbox" })).toBe(true);
   });
 
+  it("accepts the 0.2.0 messages that carry nothing", () => {
+    for (const kind of [
+      "get-extension-config",
+      "refresh-extension-config",
+      "get-recent-reading",
+      "get-backend-url",
+    ]) {
+      expect(isRuntimeMessage({ kind })).toBe(true);
+    }
+  });
+
+  it("accepts record-manual only with a tab and a full payload", () => {
+    const payload = {
+      mangaName: "X",
+      chapterLabel: "Cap. 1",
+      sourceUrl: "https://a.com/1",
+    };
+    expect(isRuntimeMessage({ kind: "record-manual", tabId: 1, payload })).toBe(
+      true,
+    );
+    expect(isRuntimeMessage({ kind: "record-manual", payload })).toBe(false);
+    expect(
+      isRuntimeMessage({ kind: "record-manual", tabId: 1, payload: {} }),
+    ).toBe(false);
+  });
+
+  it("accepts a detection report with or without page facts", () => {
+    const report = {
+      kind: "report-detection",
+      url: "https://a.com/1",
+      detection: { detected: false, reason: "no-title" },
+    };
+    expect(isRuntimeMessage(report)).toBe(true);
+    expect(
+      isRuntimeMessage({
+        ...report,
+        facts: { theme: "madara", seriesLinkUrl: null, nextUrl: null },
+      }),
+    ).toBe(true);
+    expect(isRuntimeMessage({ ...report, facts: { theme: 3 } })).toBe(false);
+  });
+
+  it("accepts every delivery status a detector reports, and nothing else", () => {
+    const report = (delivery: unknown) => ({
+      kind: "report-delivery",
+      url: "https://a.com/1",
+      delivery,
+    });
+    for (const delivery of [
+      { status: "sent" },
+      { status: "sent", mangaId: "m1" },
+      { status: "queued" },
+      { status: "below-threshold" },
+      { status: "waiting", minSeconds: 30, minScrollPercent: 80 },
+      { status: "held", reason: "paused" },
+      { status: "held", reason: "incognito" },
+      { status: "failed", error: "x" },
+    ]) {
+      expect(isRuntimeMessage(report(delivery))).toBe(true);
+    }
+    for (const delivery of [
+      { status: "held", reason: "bored" },
+      { status: "waiting" },
+      { status: "sent", mangaId: 3 },
+      { status: "lost" },
+    ]) {
+      expect(isRuntimeMessage(report(delivery))).toBe(false);
+    }
+  });
+
   it("accepts a record-event message with a full payload", () => {
     expect(
       isRuntimeMessage({

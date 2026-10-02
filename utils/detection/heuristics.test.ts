@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { compileDetectionConfig } from "./config";
 import {
   CONFIDENCE_THRESHOLD,
   cleanMangaName,
@@ -20,6 +21,10 @@ function signals(overrides: Partial<PageSignals>): PageSignals {
     firstHeading: null,
     siteName: null,
     seriesLinkTitle: null,
+    seriesLinkHinted: false,
+    seriesLinkSlug: null,
+    themeHeading: null,
+    themeReader: false,
     ...overrides,
   };
 }
@@ -596,5 +601,183 @@ describe("cleanMangaName", () => {
     expect(cleanMangaName("Manga Solo Leveling Capítulo 12", "12", null)).toBe(
       "Manga Solo Leveling",
     );
+  });
+});
+
+describe("a chapter url with no series in it (heavenmanga)", () => {
+  // Measured on the real page: /manga/leer/<id>, and a link back to the series
+  // at /manga/<slug>. Before, the name kept its "Leer" and the reading had no
+  // series identity at all.
+  const page = {
+    url: "https://heavenmanga.com/manga/leer/293702",
+    documentTitle:
+      "Leer Soy un Dios Maligno Capitulo 567 Español: Pagina 1 - HeavenManga ",
+  };
+
+  it("takes the leading verb off once the series link's slug confirms the name", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          ...page,
+          seriesLinkTitle: "Soy un Dios Maligno",
+          seriesLinkSlug: "soy-un-dios-maligno",
+        }),
+      ),
+    ).toEqual({
+      detected: true,
+      mangaName: "Soy un Dios Maligno",
+      chapterLabel: "Cap. 567",
+      confidence: 0.75,
+    });
+  });
+
+  it("keeps the verb when nothing confirms where the name starts", () => {
+    expect(detectFromHeuristics(signals(page))).toMatchObject({
+      mangaName: "Leer Soy un Dios Maligno",
+    });
+  });
+});
+
+describe("site themes", () => {
+  // MangaThemesia's chapter lives at /<slug>-capitulo-<n>/: the chapter is
+  // mid-segment, where no url pattern looks.
+  const url = "https://example.com/soy-un-dios-maligno-capitulo-567/";
+
+  it("lets the theme's reader marker stand in for a chapter url", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          url,
+          themeReader: true,
+          themeHeading: "Soy un Dios Maligno Capítulo 567",
+          documentTitle: "Example Scans",
+        }),
+      ),
+    ).toEqual({
+      detected: true,
+      mangaName: "Soy un Dios Maligno",
+      chapterLabel: "Cap. 567",
+      confidence: 0.9,
+    });
+  });
+
+  it("still refuses the same url when no theme recognised the page", () => {
+    expect(
+      detectFromHeuristics(
+        signals({ url, documentTitle: "Soy un Dios Maligno Capítulo 567" }),
+      ),
+    ).toEqual({ detected: false, reason: "no-chapter-in-url" });
+  });
+
+  it("names the manga from elsewhere when the heading is the chapter alone", () => {
+    // Madara's #chapter-heading is often just "Capitulo 48" (apollcomics,
+    // kazokuden, measured): the chapter comes from it, the name cannot.
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://www.kazokuden.com/manga/tsuzura-senpai-wa-moto-kano-dakara/capitulo-3-00/",
+          themeReader: true,
+          themeHeading: "Capítulo 3.00",
+          firstHeading: "Capítulo 3.00",
+          documentTitle: "Tsuzura Senpai Wa Moto Kano Dakara",
+          seriesLinkTitle: "Tsuzura Senpai Wa Moto Kano Dakara",
+          seriesLinkSlug: "tsuzura-senpai-wa-moto-kano-dakara",
+        }),
+      ),
+    ).toEqual({
+      detected: true,
+      mangaName: "Tsuzura Senpai Wa Moto Kano Dakara",
+      chapterLabel: "Cap. 3.00",
+      confidence: 0.9,
+    });
+  });
+
+  it("takes the name from the series link the theme points at", () => {
+    // uchuujinmangas abbreviates the name in the chapter heading; the link to
+    // the series carries the series page's own.
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://uchuujinmangas.com/2026/10/01/villanos-correctamente-capitulo-55/",
+          themeReader: true,
+          themeHeading: "Villanos Correctamente Capítulo 55",
+          seriesLinkTitle: "Cómo Criar Villanos Correctamente",
+          seriesLinkHinted: true,
+          seriesLinkSlug: "como-criar-villanos-correctamente",
+        }),
+      ),
+    ).toMatchObject({
+      mangaName: "Cómo Criar Villanos Correctamente",
+      chapterLabel: "Cap. 55",
+    });
+  });
+
+  it("does not take a hinted link that names a chapter as the manga", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://example.com/manga/x/capitulo-12/",
+          themeReader: true,
+          themeHeading: "Torre de Dios - Capítulo 12",
+          seriesLinkTitle: "Capítulo 11",
+          seriesLinkHinted: true,
+        }),
+      ),
+    ).toMatchObject({ mangaName: "Torre de Dios" });
+  });
+
+  it("prefers the theme's heading over an og:title that is the site's name", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://example.com/manga/x/capitulo-12/",
+          themeReader: true,
+          themeHeading: "X Ultimate - Capítulo 12",
+          ogTitle: "Example Scans - Lee manga online",
+          siteName: "Example Scans",
+        }),
+      ),
+    ).toMatchObject({ mangaName: "X Ultimate", chapterLabel: "Cap. 12" });
+  });
+});
+
+describe("a config the backend added to", () => {
+  const config = compileDetectionConfig({
+    confidenceThreshold: null,
+    settleDelayMs: null,
+    chapterUrlPatterns: ["/episodio-(\\d+)"],
+    readerPathPatterns: [],
+    chapterWords: ["episodio"],
+    sectionSegments: ["webtoon"],
+    leadingPrefixes: ["mira"],
+  });
+
+  it("reads a chapter word and a url shape the defaults do not know", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://example.com/webtoon/torre-de-dios/episodio-12",
+          documentTitle: "Mira Torre de Dios Episodio 12 | Example",
+        }),
+        config,
+      ),
+    ).toEqual({
+      detected: true,
+      mangaName: "Torre de Dios",
+      chapterLabel: "Cap. 12",
+      confidence: 0.75,
+    });
+  });
+
+  it("keeps every default working", () => {
+    expect(
+      detectFromHeuristics(
+        signals({
+          url: "https://example.com/manga/one-piece/capitulo/1100",
+          documentTitle: "One Piece Capítulo 1100",
+        }),
+        config,
+      ),
+    ).toMatchObject({ detected: true, mangaName: "One Piece" });
   });
 });

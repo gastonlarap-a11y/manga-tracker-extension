@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 import { captureCoverFromVisibleTab, cropDataUrl } from "./cover-pixels";
 
 const fetchMock = vi.fn<typeof fetch>();

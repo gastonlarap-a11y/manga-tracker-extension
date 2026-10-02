@@ -103,6 +103,10 @@ export interface SeriesRuleDto {
 /**
  * Everything the backend knows about one site: the curated rule and, if this
  * machine calibrated the site, its selectors. Either half may be absent.
+ *
+ * The fields after `chapterUrlRegex` came with backend 0.1.22 and are optional
+ * here for that reason: an older backend does not send them, and a copy cached
+ * before the backend updated lacks them for up to six hours.
  */
 export interface SiteRuleDto {
   domain: string;
@@ -110,6 +114,70 @@ export interface SiteRuleDto {
   titleSelector: string | null;
   chapterSelector: string | null;
   chapterUrlRegex: string | null;
+  /** Other hosts the site is served from; matched as if they were `domain`. */
+  aliases?: string[];
+  /** Regexes against the full URL: pages never recorded. */
+  ignorePaths?: string[];
+  confidenceThreshold?: number | null;
+  settleDelayMs?: number | null;
+  /** Anchors back to the series page; the last one off this page is taken. */
+  seriesLinkSelector?: string | null;
+  /** The anchor to the next chapter. */
+  nextSelector?: string | null;
+}
+
+/**
+ * Additions to the heuristic's vocabulary and replacements for its numbers.
+ * A null number keeps the compiled default; see utils/detection/config.ts.
+ */
+export interface DetectionTuningDto {
+  confidenceThreshold: number | null;
+  settleDelayMs: number | null;
+  chapterUrlPatterns: string[];
+  readerPathPatterns: string[];
+  chapterWords: string[];
+  sectionSegments: string[];
+  leadingPrefixes: string[];
+}
+
+/** A site theme many sites are built on (Madara, MangaThemesia…). */
+export interface SiteThemeDto {
+  name: string;
+  /** Present on a chapter page of this theme, and on nothing else. */
+  readerMarker: string;
+  /** An element whose text names the series and the chapter. */
+  headingSelector: string | null;
+  seriesLinkSelector: string | null;
+  nextSelector: string | null;
+}
+
+export interface ExtensionNoticeDto {
+  id: string;
+  level: "info" | "warning";
+  text: string;
+}
+
+/** When a chapter page counts as read; edited from the dashboard. */
+export interface ReadingSettingsDto {
+  readingRequired: boolean;
+  readMinSeconds: number;
+  readMinScrollPercent: number;
+}
+
+/** `GET /api/extension-config` (manga-tracker-api src/modules/extension). */
+export interface ExtensionConfigDto {
+  schemaVersion: number;
+  minExtensionVersion: string;
+  detection: DetectionTuningDto;
+  themes: SiteThemeDto[];
+  notices: ExtensionNoticeDto[];
+  reading: ReadingSettingsDto;
+}
+
+/** `GET /api/library/page`: one page of cards and where the next begins. */
+export interface LibraryPageDto {
+  items: LibraryEntryDto[];
+  nextCursor: string | null;
 }
 
 export interface HealthResponse {

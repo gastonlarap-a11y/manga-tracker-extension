@@ -4,6 +4,7 @@ import type {
   CreateAdapterBody,
   CreateEventBody,
   CreateEventResponse,
+  ExtensionConfigDto,
   HealthResponse,
   LibraryEntryDto,
   MangaDto,
@@ -17,17 +18,35 @@ import type {
   CoverHealStatus,
   DeliveryStatus,
   DetectionEntry,
+  PageFacts,
 } from "./detection-log";
 import type { DetectorRepair } from "./site-registration";
+import type { HoldReason } from "./tracking-prefs";
 
 /**
  * What recording a reading comes back as. `queued` is its own answer rather
  * than a failure: the backend was not reachable, and the reading is kept in
- * `utils/outbox.ts` to be sent when it is.
+ * `utils/outbox.ts` to be sent when it is. `held` is not a failure either:
+ * tracking is paused, or the tab is a private window that does not record.
  */
 export type RecordEventResponse =
   | ApiResult<CreateEventResponse>
-  | { ok: false; error: string; queued: true };
+  | { ok: false; error: string; queued: true }
+  | { ok: false; error: string; held: HoldReason };
+
+/** How a recording's answer reads in the detection log. */
+export function deliveryOf(result: RecordEventResponse): DeliveryStatus {
+  if (result.ok) {
+    return { status: "sent", mangaId: result.data.manga.id };
+  }
+  if ("held" in result) {
+    return { status: "held", reason: result.held };
+  }
+  if ("queued" in result) {
+    return { status: "queued" };
+  }
+  return { status: "failed", error: result.error };
+}
 
 export type RuntimeMessage =
   | { kind: "ping" }
@@ -47,8 +66,25 @@ export type RuntimeMessage =
       originPatterns: string[];
       tabId: number;
     }
-  | { kind: "report-detection"; url: string; detection: Detection }
+  | {
+      kind: "report-detection";
+      url: string;
+      detection: Detection;
+      // Absent from a detector older than 0.2.0 still running in an open tab.
+      facts?: PageFacts;
+    }
   | { kind: "report-delivery"; url: string; delivery: DeliveryStatus }
+  // Tuning, themes, notices and reading settings, from the background's cache.
+  | { kind: "get-extension-config" }
+  // Asks for a fresh copy now: the popup opening is the moment someone who
+  // just changed a setting in the dashboard looks for it to apply.
+  | { kind: "refresh-extension-config" }
+  // "Guardar a mano" from the popup, for the tab it was opened on.
+  | { kind: "record-manual"; tabId: number; payload: CreateEventBody }
+  // The few series read most recently, for "Seguir leyendo".
+  | { kind: "get-recent-reading" }
+  // Where the backend answers, to open the dashboard on it.
+  | { kind: "get-backend-url" }
   | { kind: "report-cover-heal"; url: string; coverHeal: CoverHealStatus }
   | { kind: "get-detection"; tabId: number }
   | { kind: "start-calibration"; tabId: number }
@@ -88,6 +124,12 @@ export interface MessageResponses {
   "ensure-site-registered": ApiResult<DetectorRepair>;
   "report-detection": null;
   "report-delivery": null;
+  // Null with no backend that has the endpoint: the compiled defaults apply.
+  "get-extension-config": ExtensionConfigDto | null;
+  "refresh-extension-config": ExtensionConfigDto | null;
+  "record-manual": RecordEventResponse;
+  "get-recent-reading": ApiResult<LibraryEntryDto[]>;
+  "get-backend-url": { baseUrl: string | null };
   "report-cover-heal": null;
   "get-detection": DetectionEntry | null;
   "start-calibration": ApiResult<null>;
@@ -123,7 +165,18 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case "get-outbox":
     case "backfill-covers":
     case "get-site-rules":
+    case "get-extension-config":
+    case "refresh-extension-config":
+    case "get-recent-reading":
+    case "get-backend-url":
       return true;
+    case "record-manual":
+      return (
+        "tabId" in value &&
+        typeof value.tabId === "number" &&
+        "payload" in value &&
+        isCreateEventBody(value.payload)
+      );
     case "get-detection":
     case "start-calibration":
       return "tabId" in value && typeof value.tabId === "number";
@@ -155,7 +208,8 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
         "url" in value &&
         typeof value.url === "string" &&
         "detection" in value &&
-        isDetection(value.detection)
+        isDetection(value.detection) &&
+        (!("facts" in value) || isPageFacts(value.facts))
       );
     case "report-delivery":
       return (
@@ -262,13 +316,43 @@ function isDeliveryStatus(value: unknown): value is DeliveryStatus {
   if (typeof value !== "object" || value === null || !("status" in value)) {
     return false;
   }
-  if (value.status === "sent" || value.status === "queued") {
-    return true;
+  switch (value.status) {
+    case "sent":
+      return !("mangaId" in value) || typeof value.mangaId === "string";
+    case "queued":
+    case "below-threshold":
+      return true;
+    case "failed":
+      return "error" in value && typeof value.error === "string";
+    case "waiting":
+      return (
+        "minSeconds" in value &&
+        typeof value.minSeconds === "number" &&
+        "minScrollPercent" in value &&
+        typeof value.minScrollPercent === "number"
+      );
+    case "held":
+      return (
+        "reason" in value &&
+        (value.reason === "paused" || value.reason === "incognito")
+      );
+    default:
+      return false;
   }
+}
+
+function isPageFacts(value: unknown): value is PageFacts {
+  const nullableString = (field: unknown) =>
+    field === null || typeof field === "string";
   return (
-    value.status === "failed" &&
-    "error" in value &&
-    typeof value.error === "string"
+    typeof value === "object" &&
+    value !== null &&
+    "theme" in value &&
+    nullableString(value.theme) &&
+    "seriesLinkUrl" in value &&
+    nullableString(value.seriesLinkUrl) &&
+    "nextUrl" in value &&
+    nullableString(value.nextUrl)
   );
 }
 

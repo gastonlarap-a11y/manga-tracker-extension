@@ -1,6 +1,7 @@
 import ReactDOM from "react-dom/client";
 import { createShadowRootUi, defineContentScript } from "#imports";
 import { CalibrationApp } from "./CalibrationApp";
+import "@/assets/tokens.css";
 import "./style.css";
 
 declare global {
@@ -30,6 +31,12 @@ export default defineContentScript({
         position: "modal",
         zIndex: 2147483647,
         onMount: (container) => {
+          // `modal` pins the container over the whole viewport, and an element
+          // there takes every click that was meant for the page — the overlay
+          // used to see its own host as the target of each pick and discard
+          // it, so calibrating did nothing at all. Transparent to the pointer,
+          // with the bar opting back in (style.css).
+          container.style.pointerEvents = "none";
           const app = document.createElement("div");
           container.append(app);
           const root = ReactDOM.createRoot(app);
