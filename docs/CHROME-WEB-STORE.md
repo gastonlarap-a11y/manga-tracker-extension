@@ -114,13 +114,15 @@ CÓMO FUNCIONA
 • Vos elegís qué sitios se trackean. La extensión pide permiso para un sitio sólo cuando
   apretás "Trackear este sitio"; un sitio que no habilitaste nunca es leído.
 • En los sitios habilitados detecta sola el manga y el capítulo mientras leés, y lo registra
-  al instante.
+  solo.
 • Reconoce sin configurar nada los sitios hechos con los temas más usados (Madara,
   MangaThemesia). Si un sitio tiene un diseño que confunde a la detección, lo calibrás con
   dos clics: marcás dónde está el título y dónde el número de capítulo.
 • El ícono te dice de un vistazo si el capítulo quedó guardado. Si la detección se equivoca,
   lo corregís o lo guardás a mano desde la ventanita.
 • "Seguir leyendo": tus últimas series a un clic, con su portada.
+• Si querés, cuenta un capítulo recién cuando lo leíste (tiempo en la página y cuánto
+  bajaste), y no apenas lo abrís. Se activa desde la aplicación.
 • Podés pausar el tracking cuando quieras, y las ventanas privadas no se registran.
 • Tu historial queda en la aplicación Manga Tracker de tu computadora, en una base de datos
   local, con la biblioteca completa y los capítulos leídos de cada serie.
@@ -220,6 +222,12 @@ done
 2. El popup en un sitio recién habilitado, con el botón de activar el seguimiento — le muestra
    al revisor que el acceso es **opt-in sitio por sitio**. Eso ayuda en la revisión.
 3. El dashboard con la biblioteca — qué se obtiene a cambio.
+
+Las de 0.2.0 son cinco: capítulo guardado, el aviso antes de habilitar un sitio, la
+calibración, la biblioteca y el historial de una serie. Se generaron sobre el popup, el overlay
+y el dashboard reales con **datos inventados** — series ficticias, sitios `.example` (dominio
+reservado) y portadas generadas: ni una lectura real ni el nombre de un sitio existente, que en
+una ficha pública podría leerse como afiliación.
 
 **Cómo sacarla.** El popup se cierra al perder el foco, así que captura con retraso: corrés el
 comando, tenés 8 segundos para abrir el popup, dispara solo.
@@ -353,7 +361,9 @@ Después: **Submit for review**.
 ## 7. Publicar una actualización
 
 La primera versión se aprobó el 2026-08-10 con la id `acopmmaenbjdpcjcaiadcpdniomkikbd`, que
-ya está en `EXTENSION_IDS` (backend) y en `StoreURL` (app de escritorio). Cada versión nueva:
+ya está en `EXTENSION_IDS` (backend) y en `StoreURL` (app de escritorio). La 0.2.0 se envió a
+revisión el 2026-10-01 (paquete de `main` en `50dc00f`, con la descripción y las capturas de
+este documento). Cada versión nueva:
 
 1. Subir `version` en `package.json` en un PR propio: la tienda sólo acepta una versión mayor
    que la publicada.
