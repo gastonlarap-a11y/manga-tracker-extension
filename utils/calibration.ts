@@ -16,7 +16,15 @@ export type PickRejection =
   // A whole block: the click landed on a container, not on the title.
   | "too-much-text"
   // No selector finds this element and only it.
-  | "no-selector";
+  | "no-selector"
+  // The name picked also holds the chapter (lectorxd's <h1> is the name and
+  // "Capítulo 140" side by side): every reading would be saved under a name
+  // that changes with each chapter.
+  | "title-has-chapter"
+  // The chapter picked carries no number to read the chapter from.
+  | "chapter-has-no-number"
+  // The same element for both: one of the two is wrong.
+  | "same-as-title";
 
 export type PickResult =
   | { ok: true; pick: CalibrationPick }
@@ -57,6 +65,32 @@ export function pickElement(element: Element, doc: Document): PickResult {
     : { ok: false, reason: "no-selector" };
 }
 
+// A chapter named inside a text, with or without a space before the word —
+// textContent glues sibling elements together ("solitarioCapítulo 140"), so
+// a word boundary cannot be asked for.
+const NAMES_A_CHAPTER =
+  /(?:cap[íi]tulo|chapter|episodio)\s*\d|(?:^|[^a-z])(?:cap|ch|ep)\.?\s*\d/i;
+
+/**
+ * Whether a pick makes sense for the step it was made in. A calibration is
+ * replayed on every chapter of the site with full confidence, so one that
+ * names the manga after its chapter, or reads the chapter from text without
+ * a number, records wrong readings until someone removes it.
+ */
+export function checkPick(
+  step: "title" | "chapter",
+  pick: CalibrationPick,
+  title: CalibrationPick | null = null,
+): PickRejection | null {
+  if (step === "title") {
+    return NAMES_A_CHAPTER.test(pick.text) ? "title-has-chapter" : null;
+  }
+  if (title !== null && title.selector === pick.selector) {
+    return "same-as-title";
+  }
+  return /\d/.test(pick.text) ? null : "chapter-has-no-number";
+}
+
 export interface Box {
   width: number;
   height: number;
@@ -64,6 +98,32 @@ export interface Box {
 
 /** Share of the viewport, in both directions, past which an element covers it. */
 const COVERING_SHARE = 0.9;
+
+/** Elements whose lack of text is their content, not a sign of a layer. */
+const CONTENT_WITHOUT_TEXT = new Set([
+  "img",
+  "svg",
+  "canvas",
+  "video",
+  "picture",
+  "input",
+  "select",
+  "textarea",
+]);
+
+/**
+ * An empty element laid over content to catch its clicks: no text, nothing
+ * inside it, and not an image. Tailwind sites make a whole card clickable this
+ * way — lectorxd's chapter list puts `<a class="absolute inset-0 z-10">` over
+ * every row — and it sits exactly on top of the text someone means to click.
+ */
+function isEmptyLayer(element: Element): boolean {
+  return (
+    element.children.length === 0 &&
+    (element.textContent ?? "").trim() === "" &&
+    !CONTENT_WITHOUT_TEXT.has(element.tagName.toLowerCase())
+  );
+}
 
 /**
  * The page element a click at one point was meant for, out of everything
@@ -73,9 +133,9 @@ const COVERING_SHARE = 0.9;
  * over the whole page that opens an ad on the first click, and that layer is
  * what an event's target says was clicked — the title underneath never saw
  * it. So whatever covers the viewport is skipped, along with the overlay's
- * own host, the document's roots and frames (an ad, or someone else's page).
- * What is left, topmost first, is the element under the pointer as the
- * reader sees it.
+ * own host, the document's roots, frames (an ad, or someone else's page) and
+ * empty layers over a single card or row. What is left, topmost first, is the
+ * element under the pointer as the reader sees it.
  */
 export function pickTarget(
   stack: readonly Element[],
@@ -91,7 +151,8 @@ export function pickTarget(
       tag === "html" ||
       tag === "body" ||
       tag === "iframe" ||
-      options.isOwn(element)
+      options.isOwn(element) ||
+      isEmptyLayer(element)
     ) {
       continue;
     }

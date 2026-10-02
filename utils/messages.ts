@@ -89,7 +89,8 @@ export type RuntimeMessage =
   | { kind: "get-detection"; tabId: number }
   | { kind: "start-calibration"; tabId: number }
   | { kind: "save-adapter"; body: CreateAdapterBody }
-  | { kind: "get-library" }
+  // The cards read on one site, for the cover capture on its series pages.
+  | { kind: "get-library-for-site"; domain: string }
   // How many readings are waiting in the outbox for the backend.
   | { kind: "get-outbox" }
   | { kind: "set-cover"; mangaId: string; coverUrl: string }
@@ -134,7 +135,7 @@ export interface MessageResponses {
   "get-detection": DetectionEntry | null;
   "start-calibration": ApiResult<null>;
   "save-adapter": ApiResult<SiteAdapterDto>;
-  "get-library": ApiResult<LibraryEntryDto[]>;
+  "get-library-for-site": ApiResult<LibraryEntryDto[]>;
   "get-outbox": { pending: number };
   "set-cover": ApiResult<MangaDto>;
   "backfill-covers": null;
@@ -161,7 +162,6 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
   }
   switch (value.kind) {
     case "ping":
-    case "get-library":
     case "get-outbox":
     case "backfill-covers":
     case "get-site-rules":
@@ -181,6 +181,7 @@ export function isRuntimeMessage(value: unknown): value is RuntimeMessage {
     case "start-calibration":
       return "tabId" in value && typeof value.tabId === "number";
     case "get-selectors":
+    case "get-library-for-site":
       return "domain" in value && typeof value.domain === "string";
     case "record-event":
       return "payload" in value && isCreateEventBody(value.payload);

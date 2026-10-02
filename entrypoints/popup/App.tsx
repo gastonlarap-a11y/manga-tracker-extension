@@ -104,12 +104,17 @@ export function App() {
   }, []);
 
   const tabId = tab?.id;
+  const tabUrl = tab?.url;
   const refreshEntry = useCallback(async () => {
     if (tabId === undefined) {
       return;
     }
-    setEntry(await sendRuntimeMessage({ kind: "get-detection", tabId }));
-  }, [tabId]);
+    const found = await sendRuntimeMessage({ kind: "get-detection", tabId });
+    // A detection of another page: a site that changes chapter without
+    // reloading keeps the previous page's entry until the new one settles,
+    // and showing it would name the chapter just left.
+    setEntry(found !== null && found.url === tabUrl ? found : null);
+  }, [tabId, tabUrl]);
 
   useEffect(() => {
     void refreshEntry();
@@ -217,6 +222,10 @@ export function App() {
       <SiteCard
         site={site}
         theme={entry?.facts?.theme ?? null}
+        notAChapter={
+          entry?.detection.detected === false &&
+          entry.detection.reason === "no-chapter-in-url"
+        }
         connected={connection.kind === "connected"}
         onChange={setSite}
       />

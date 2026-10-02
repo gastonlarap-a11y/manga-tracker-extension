@@ -343,11 +343,14 @@ export function ContinueReading({
 export function SiteCard({
   site,
   theme,
+  notAChapter,
   connected,
   onChange,
 }: {
   site: SiteState;
   theme: string | null;
+  /** The page is a series page or a catalogue, where calibrating misleads. */
+  notAChapter: boolean;
   connected: boolean;
   onChange: (state: SiteState) => void;
 }) {
@@ -395,6 +398,13 @@ export function SiteCard({
               Chrome no dio el permiso. Volvé a intentarlo y aceptá el diálogo.
             </p>
           )}
+          {/* Said before the person agrees, as the Web Store asks of any
+              extension that reads what someone does on a site. */}
+          <p className="hint">
+            Al activarlo, la extensión lee el nombre y el capítulo de lo que
+            abras en este sitio y lo guarda en Manga Tracker, en tu computadora.
+            No se envía a ningún otro lado.
+          </p>
           <div className="actions">
             <button
               type="button"
@@ -422,6 +432,12 @@ export function SiteCard({
             <p className="hint">
               Este sitio necesita un permiso ampliado (subdominios) para guardar
               las portadas que su CDN bloquea.
+            </p>
+          )}
+          {notAChapter && (
+            <p className="hint">
+              Para calibrar, abrí un capítulo: lo que marques se busca después
+              en cada capítulo, y en la ficha de la serie no está.
             </p>
           )}
           <div className="actions">

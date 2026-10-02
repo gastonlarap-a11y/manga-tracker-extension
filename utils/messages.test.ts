@@ -166,8 +166,13 @@ describe("isRuntimeMessage", () => {
     ).toBe(false);
   });
 
-  it("accepts a get-library message", () => {
-    expect(isRuntimeMessage({ kind: "get-library" })).toBe(true);
+  it("asks for one site's cards, never the whole library", () => {
+    expect(
+      isRuntimeMessage({ kind: "get-library-for-site", domain: "a.com" }),
+    ).toBe(true);
+    expect(isRuntimeMessage({ kind: "get-library-for-site" })).toBe(false);
+    // Gone: the whole library is megabytes at thousands of series.
+    expect(isRuntimeMessage({ kind: "get-library" })).toBe(false);
   });
 
   it("accepts set-cover only with mangaId and coverUrl strings", () => {

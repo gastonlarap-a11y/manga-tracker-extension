@@ -3,6 +3,7 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import { baseUrlFor, DEFAULT_PORT, rememberBaseUrl } from "./api/discovery";
 import { getDetection } from "./detection-log";
 import {
+  BACKFILL_PAGE_SIZE,
   flushReadings,
   handleMessage,
   RECENT_READING_COUNT,
@@ -276,14 +277,17 @@ describe("handleMessage", () => {
     expect(response).toEqual({ ok: true, data: null });
   });
 
-  it("routes get-library to the library endpoint", async () => {
+  it("asks the library for one site's cards only", async () => {
     const entries = [{ id: "m1", canonicalName: "One Piece", coverUrl: null }];
     fetchMock.mockResolvedValue(jsonResponse(entries, 200));
 
-    const response = await handleMessage({ kind: "get-library" });
+    const response = await handleMessage({
+      kind: "get-library-for-site",
+      domain: "lectorxd.com",
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:5150/api/library",
+      "http://localhost:5150/api/library?domain=lectorxd.com",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(response).toEqual({ ok: true, data: entries });
@@ -465,8 +469,8 @@ describe("handleMessage", () => {
     } as unknown as typeof fakeBrowser.permissions;
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith("/api/library")) {
-        return jsonResponse(library, 200);
+      if (url.includes("/api/library/page")) {
+        return jsonResponse({ items: library, nextCursor: null }, 200);
       }
       if (url === permittedCover) {
         return new Response(new ArrayBuffer(1), {
@@ -489,6 +493,47 @@ describe("handleMessage", () => {
     expect(
       fetchedUrls.filter((url) => url.includes("/cover-image")),
     ).toHaveLength(1);
+    // Never the whole library at once.
+    expect(fetchedUrls.some((url) => url.endsWith("/api/library"))).toBe(false);
+  });
+
+  it("walks the library a page at a time until there is no next one", async () => {
+    const pages = new Map<
+      string | null,
+      { items: unknown[]; nextCursor: string | null }
+    >([
+      [
+        null,
+        {
+          items: [{ id: "a", coverUrl: null, hasStoredCover: false }],
+          nextCursor: "c1",
+        },
+      ],
+      [
+        "c1",
+        {
+          items: [{ id: "b", coverUrl: null, hasStoredCover: false }],
+          nextCursor: null,
+        },
+      ],
+    ]);
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      return jsonResponse(pages.get(url.searchParams.get("cursor")), 200);
+    });
+
+    await handleMessage({ kind: "backfill-covers" });
+
+    const pageCalls = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname === "/api/library/page");
+    expect(pageCalls.map((url) => url.searchParams.get("cursor"))).toEqual([
+      null,
+      "c1",
+    ]);
+    expect(pageCalls[0]?.searchParams.get("limit")).toBe(
+      String(BACKFILL_PAGE_SIZE),
+    );
   });
 
   it("uploads content-script-fetched cover bytes from base64", async () => {
@@ -546,7 +591,15 @@ describe("handleMessage", () => {
   it("skips the pixel capture when the cover bytes are already stored", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(
-        [{ id: "m1", coverUrl: "https://x.com/c.png", hasStoredCover: true }],
+        {
+          manga: {
+            id: "m1",
+            coverUrl: "https://x.com/c.png",
+            hasStoredCover: true,
+          },
+          aliases: [],
+          events: [],
+        },
         200,
       ),
     );
@@ -564,6 +617,31 @@ describe("handleMessage", () => {
 
     expect(response).toEqual({ ok: true, data: null });
     expect(captureVisibleTabMock).not.toHaveBeenCalled();
+    // The one manga, never the whole library.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5150/api/mangas/m1/history",
+      expect.anything(),
+    );
+  });
+
+  it("refuses a pixel capture for a manga the backend does not have", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "Manga not found" }, 404),
+    );
+
+    const response = await handleMessage(
+      {
+        kind: "capture-cover-pixels",
+        mangaId: "gone",
+        rect: { x: 0, y: 0, width: 200, height: 300 },
+        dpr: 2,
+      },
+      5,
+      { windowId: 1, active: true },
+    );
+
+    expect(response).toEqual({ ok: false, error: "Manga not found" });
+    expect(captureVisibleTabMock).not.toHaveBeenCalled();
   });
 
   it("screenshots, crops and uploads the pixel-captured cover", async () => {
@@ -571,15 +649,17 @@ describe("handleMessage", () => {
     createImageBitmapMock.mockResolvedValue({ width: 2000, height: 1600 });
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
-      if (url.endsWith("/api/library")) {
+      if (url.endsWith("/api/mangas/m1/history")) {
         return jsonResponse(
-          [
-            {
+          {
+            manga: {
               id: "m1",
               coverUrl: "https://x.com/c.png",
               hasStoredCover: false,
             },
-          ],
+            aliases: [],
+            events: [],
+          },
           200,
         );
       }
