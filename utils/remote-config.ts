@@ -41,7 +41,9 @@ export const DEFAULT_READING_SETTINGS: ReadingSettingsDto = {
 };
 
 type CachedConfig = {
-  config: ExtensionConfigDto;
+  // Null is an answer too: a backend older than the endpoint said 404, and
+  // asking it again on every page would change nothing until it updates.
+  config: ExtensionConfigDto | null;
   fetchedAt: number;
 };
 
@@ -77,14 +79,23 @@ export async function cachedConfig(): Promise<ExtensionConfigDto | null> {
 }
 
 /**
- * Fetches the config and stores it. A failure — the backend away, or one too
- * old to have the endpoint — leaves the previous copy alone.
+ * Fetches the config and stores it. A failure leaves a previous copy alone —
+ * the backend being away, or mid restart, says nothing about whether it was
+ * good. With no copy to keep, a backend too old to have the endpoint (404) is
+ * remembered as having nothing, so it is not asked again on every page until
+ * that answer goes stale.
  */
 export async function refreshConfig(
   now: number = Date.now(),
 ): Promise<boolean> {
   const result = await getExtensionConfig();
   if (!result.ok) {
+    if (result.status === 404 && (await cachedConfig()) === null) {
+      await storage.setItem<CachedConfig>(CACHE_KEY, {
+        config: null,
+        fetchedAt: now,
+      });
+    }
     return false;
   }
   const config = parseExtensionConfig(result.data);
@@ -105,7 +116,8 @@ export async function configForDetection(
 ): Promise<ExtensionConfigDto | null> {
   const cached = await storage.getItem<CachedConfig>(CACHE_KEY);
   if (cached === null) {
-    return (await refreshConfig(now)) ? await cachedConfig() : null;
+    await refreshConfig(now);
+    return await cachedConfig();
   }
   if (now - cached.fetchedAt > CONFIG_TTL_MS) {
     void refreshConfig(now);

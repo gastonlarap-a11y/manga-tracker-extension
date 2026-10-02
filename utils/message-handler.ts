@@ -4,6 +4,9 @@ import {
   createAdapter,
   createReadingEvent,
   getLibrary,
+  getLibraryForSite,
+  getLibraryPage,
+  getManga,
   getRecentlyRead,
   neverReachedServer,
   pingHealth,
@@ -128,8 +131,8 @@ export function handleMessage(
       return startCalibration(message.tabId);
     case "save-adapter":
       return saveAdapter(message.body, senderTabId);
-    case "get-library":
-      return getLibrary();
+    case "get-library-for-site":
+      return getLibraryForSite(message.domain);
     case "get-outbox":
       return queuedReadings().then((queue) => ({ pending: queue.length }));
     case "set-cover":
@@ -176,8 +179,10 @@ async function uploadCoverBase64(
 }
 
 // Pixel fallback: screenshot the sender's visible tab and crop the rendered
-// cover. Guarded server-side (never downgrades already-stored bytes with a
-// screenshot) and tab-side (only the on-screen tab can be captured).
+// cover. Guarded here, not by the backend — which stores whatever bytes it is
+// sent — against downgrading a cover already stored at full quality with a
+// screenshot, and tab-side (only the on-screen tab can be captured). The check
+// asks for the one manga, never for the whole library.
 async function captureCoverPixels(
   mangaId: string,
   rect: CoverRect,
@@ -187,15 +192,13 @@ async function captureCoverPixels(
   if (senderTab?.active !== true || senderTab.windowId === undefined) {
     return { ok: false, error: "Tab is not visible" };
   }
-  const library = await getLibrary();
-  if (!library.ok) {
-    return library;
+  const manga = await getManga(mangaId);
+  if (!manga.ok) {
+    return manga.status === 404
+      ? { ok: false, error: "Manga not found" }
+      : manga;
   }
-  const entry = library.data.find((candidate) => candidate.id === mangaId);
-  if (!entry) {
-    return { ok: false, error: "Manga not found" };
-  }
-  if (entry.hasStoredCover) {
+  if (manga.data.hasStoredCover) {
     return { ok: true, data: null };
   }
   const image = await captureCoverFromVisibleTab(senderTab.windowId, rect, dpr);
@@ -373,27 +376,35 @@ async function captureCoverBytes(
   await uploadMangaCoverImage(mangaId, image.bytes, image.contentType);
 }
 
+/** How many cards the cover backfill reads per request. */
+export const BACKFILL_PAGE_SIZE = 200;
+
 /**
  * Byte backfill for covers stored before byte capture existed (or whose
  * capture failed): entries with a coverUrl but no stored bytes, whose CDN
- * origin the user has already granted. Sequential — the library is tiny.
- * Runs once per browser session (background startup) and after a permission
- * upgrade from the popup.
+ * origin the user has already granted. Sequential, and a page of the library
+ * at a time: a service worker holding thousands of cards at once is the
+ * worker Chrome kills first. Runs once per browser session (background
+ * startup) and after a permission upgrade from the popup.
  */
 export async function backfillMissingCovers(): Promise<void> {
-  const library = await getLibrary();
-  if (!library.ok) {
-    return;
-  }
-  for (const entry of library.data) {
-    if (entry.hasStoredCover || entry.coverUrl === null) {
-      continue;
+  let cursor: string | null = null;
+  do {
+    const page = await getLibraryPage(cursor, BACKFILL_PAGE_SIZE);
+    if (!page.ok) {
+      return;
     }
-    if (!(await coverOriginPermitted(entry.coverUrl))) {
-      continue;
+    for (const entry of page.data.items) {
+      if (entry.hasStoredCover || entry.coverUrl === null) {
+        continue;
+      }
+      if (!(await coverOriginPermitted(entry.coverUrl))) {
+        continue;
+      }
+      await captureCoverBytes(entry.id, entry.coverUrl);
     }
-    await captureCoverBytes(entry.id, entry.coverUrl);
-  }
+    cursor = page.data.nextCursor;
+  } while (cursor !== null);
 }
 
 async function coverOriginPermitted(coverUrl: string): Promise<boolean> {

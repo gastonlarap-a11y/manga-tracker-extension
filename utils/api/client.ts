@@ -60,8 +60,49 @@ export function createReadingEvent(
   });
 }
 
+/**
+ * The whole library. Only for "Seguir leyendo" on a backend older than the
+ * paged library (before 0.1.19); everything else asks for less.
+ */
 export function getLibrary(): Promise<ApiResult<LibraryEntryDto[]>> {
   return request<LibraryEntryDto[]>("/api/library");
+}
+
+/**
+ * The cards read on one site — what a series page of that site can be the
+ * cover of. Never the whole library: at thousands of series that is megabytes
+ * of JSON for a page that matches one of them. `domain` is the host readings
+ * are stored under, the page's own hostname.
+ */
+export function getLibraryForSite(
+  domain: string,
+): Promise<ApiResult<LibraryEntryDto[]>> {
+  return request<LibraryEntryDto[]>(
+    `/api/library?${new URLSearchParams({ domain })}`,
+  );
+}
+
+/**
+ * One page of the library, in a stable order, for walking all of it without
+ * holding it all at once.
+ */
+export function getLibraryPage(
+  cursor: string | null,
+  limit: number,
+): Promise<ApiResult<LibraryPageDto>> {
+  const query = new URLSearchParams({ sort: "title", limit: String(limit) });
+  if (cursor !== null) {
+    query.set("cursor", cursor);
+  }
+  return request<LibraryPageDto>(`/api/library/page?${query}`);
+}
+
+/** One manga as the backend has it now, merges resolved. */
+export async function getManga(id: string): Promise<ApiResult<MangaDto>> {
+  const result = await request<{ manga: MangaDto }>(
+    `/api/mangas/${encodeURIComponent(id)}/history`,
+  );
+  return result.ok ? { ok: true, data: result.data.manga } : result;
 }
 
 /**

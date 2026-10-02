@@ -137,7 +137,23 @@ Sibling repo: `../manga-tracker-api` (its PLAN.md is the roadmap for both repos)
   which the overlay then discarded as its own — calibrating did nothing. The container is
   `pointer-events: none` (only the bar opts back in), the pick is made from
   `document.elementsFromPoint` skipping whatever covers the viewport (manga sites lay a
-  transparent ad layer over the page), and a rejected click says why on screen.
+  transparent ad layer over the page) and any empty element laid over a card or a row to
+  make it clickable (lectorxd: `<a class="absolute inset-0">` over every chapter row), and a
+  rejected click says why on screen. **A pick is checked before it can be saved**
+  (`checkPick`): a name that also holds the chapter (lectorxd's `<h1>` is both, glued) or a
+  chapter with no number is refused — a calibration replays with full confidence on every
+  chapter, so a bad one records wrong readings until someone removes it from the
+  dashboard's Extensión page.
+- **Never the whole library.** At thousands of series it is megabytes per request. The cover
+  capture on a series page asks for that site's cards once per visit
+  (`get-library-for-site` → `/api/library?domain=`), the pixel capture asks for the one manga
+  (`/api/mangas/{id}/history`), and the startup backfill walks `/api/library/page`. The full
+  list is only the "Seguir leyendo" fallback for a backend older than the paged library.
+  The backend stores whatever cover bytes it is sent: the check that a stored cover is not
+  replaced by a screenshot lives here, in `captureCoverPixels`.
+- What tracking a site means is said in the popup before the person agrees (the Web Store's
+  prominent-disclosure rule, in force since 2026-08-01): what is read, and that it stays on
+  this computer.
 - **What this extension knows about individual sites comes from the backend** (`utils/site-rules.ts`
   ← `GET /api/site-rules`), never compiled in. Publishing here costs a Chrome Web Store review,
   so a regex for one new site used to mean days of waiting; the backend ships with the desktop

@@ -1,4 +1,5 @@
 import { browser, defineContentScript } from "#imports";
+import type { LibraryEntryDto } from "@/utils/api/types";
 import {
   encodeBytesToBase64,
   fetchCoverImageBytes,
@@ -258,6 +259,9 @@ export default defineContentScript({
         return;
       }
       activeCaptureUrl = url;
+      // The cards read on this site, asked for once per visit: what the
+      // attempts wait for is the page's artwork, not the library.
+      let candidates: LibraryEntryDto[] | null = null;
       try {
         for (let attempt = 0; attempt < COVER_CAPTURE_ATTEMPTS; attempt++) {
           if (attempt > 0) {
@@ -267,7 +271,18 @@ export default defineContentScript({
             return;
           }
           try {
-            if (await tryCaptureCoverOnce()) {
+            if (candidates === null) {
+              const library = await sendRuntimeMessage({
+                kind: "get-library-for-site",
+                domain: location.hostname,
+              });
+              if (!library.ok) {
+                // The backend is away; the next attempt asks again.
+                continue;
+              }
+              candidates = library.data;
+            }
+            if (await tryCaptureCoverOnce(candidates)) {
               lastCoverCheckUrl = url;
               return;
             }
@@ -286,14 +301,12 @@ export default defineContentScript({
       }
     }
 
-    async function tryCaptureCoverOnce(): Promise<boolean> {
-      const library = await sendRuntimeMessage({ kind: "get-library" });
-      if (!library.ok) {
-        return false;
-      }
+    async function tryCaptureCoverOnce(
+      candidates: LibraryEntryDto[],
+    ): Promise<boolean> {
       const heading = document.querySelector("h1")?.textContent ?? "";
       const entry = matchLibraryEntry(
-        library.data,
+        candidates,
         `${document.title} ${heading}`,
       );
       if (!entry) {

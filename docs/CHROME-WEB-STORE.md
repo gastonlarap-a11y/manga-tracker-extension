@@ -388,6 +388,13 @@ el umbral de confianza, un aviso) ahora llega con la app de escritorio, por
   números, expresiones regulares y selectores CSS que el código empaquetado interpreta —, y
   sólo desde `localhost`. Ningún script se descarga ni se evalúa.
 - **Descripción:** opcional, el texto de la sección 3 ya trae las funciones nuevas.
+- **Divulgación dentro de la extensión** (política vigente desde el 2026-08-01): antes de
+  «Trackear este sitio» el popup dice qué se lee y que queda en la computadora; el permiso
+  del sitio, pedido por Chrome con un gesto de la persona, es el consentimiento. Si un
+  revisor pregunta: *"Before the user enables a site, the popup states what is read (the
+  manga name and chapter of pages opened on that site) and that it is stored only in the
+  companion application on the user's computer; the user then grants the site permission
+  through Chrome's own prompt."*
 - **Antes de subir**, cargar el build unpacked (`bun run install:local`) en Chrome y en Brave
   y calibrar a mano un sitio real: el arreglo de los clics del overlay se verificó con una
   reproducción del DOM de WXT en Chrome, no con la extensión cargada.

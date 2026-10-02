@@ -150,6 +150,31 @@ describe("the cache", () => {
     expect(await cachedConfig()).not.toBeNull();
   });
 
+  it("stops asking a backend that has no such endpoint, until the answer is stale", async () => {
+    backendServing(() => jsonResponse({ error: "Not Found" }, 404));
+
+    expect(await configForDetection(1000)).toBeNull();
+    fetchMock.mockClear();
+
+    // Every page in the next minutes: answered from what the 404 said.
+    expect(await configForDetection(1000 + CONFIG_TTL_MS - 1)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Stale: asked again — the backend may have updated.
+    backendServing(() => jsonResponse(served(), 200));
+    await configForDetection(1000 + CONFIG_TTL_MS + 1);
+    await vi.waitFor(async () => expect(await cachedConfig()).not.toBeNull());
+  });
+
+  it("does not remember a backend that was simply away", async () => {
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    await configForDetection(1000);
+
+    backendServing(() => jsonResponse(served(), 200));
+
+    expect((await configForDetection(1001))?.themes).toHaveLength(1);
+  });
+
   it("waits for the network only when there is no copy at all", async () => {
     backendServing(() => jsonResponse(served(), 200));
 
