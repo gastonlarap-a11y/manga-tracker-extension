@@ -2,7 +2,9 @@
 // src/modules/events/events.routes.ts, src/lib/http.ts). Project constraint:
 // when a contract changes in the API, this file changes in the same commit.
 
-export type MangaStatus = "reading" | "completed" | "dropped";
+// on_hold: set aside for now. The popup's "Seguir leyendo" asks for reading
+// only, so a paused series drops out of it on the server's side.
+export type MangaStatus = "reading" | "on_hold" | "completed" | "dropped";
 
 export interface MangaDto {
   id: string;
